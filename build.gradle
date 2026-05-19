@@ -1,0 +1,78 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'cn.silentcrane'
+version = '1.0.0'
+
+def javafxVersion = '21.0.8'
+def bouncycastleVersion = '1.84'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+application {
+    mainClass = 'cn.silentcrane.jksviewer.Launcher'
+    applicationName = 'jks-viewer'
+}
+
+dependencies {
+    implementation "org.openjfx:javafx-base:${javafxVersion}:win"
+    implementation "org.openjfx:javafx-graphics:${javafxVersion}:win"
+    implementation "org.openjfx:javafx-controls:${javafxVersion}:win"
+    implementation "org.bouncycastle:bcprov-jdk18on:${bouncycastleVersion}"
+    implementation "org.bouncycastle:bcpkix-jdk18on:${bouncycastleVersion}"
+
+    testImplementation platform('org.junit:junit-bom:5.13.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:unchecked']
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+tasks.register('packageWindows', Zip) {
+    group = 'distribution'
+    description = 'Builds a Windows runnable zip containing bin/jks-viewer.bat.'
+    dependsOn tasks.named('installDist')
+    archiveFileName.set("jks-viewer-${project.version}-windows.zip")
+    destinationDirectory.set(layout.buildDirectory.dir('distributions'))
+    from(tasks.named('installDist').map { it.destinationDir })
+}
+
+tasks.register('packageWindowsApp', Exec) {
+    group = 'distribution'
+    description = 'Builds a Windows app image with jpackage.'
+    dependsOn tasks.named('installDist')
+
+    def outputDir = layout.buildDirectory.dir('jpackage')
+    inputs.dir(layout.buildDirectory.dir('install/jks-viewer/lib'))
+    outputs.dir(outputDir)
+
+    doFirst {
+        delete(outputDir)
+    }
+
+    commandLine(
+            'jpackage',
+            '--type', 'app-image',
+            '--name', 'JKS Viewer',
+            '--app-version', project.version.toString(),
+            '--vendor', 'Silent Crane',
+            '--dest', outputDir.get().asFile.absolutePath,
+            '--input', layout.buildDirectory.dir('install/jks-viewer/lib').get().asFile.absolutePath,
+            '--main-jar', "jks-viewer-${project.version}.jar",
+            '--main-class', application.mainClass.get(),
+            '--win-console'
+    )
+}

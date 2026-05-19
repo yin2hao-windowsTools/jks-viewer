@@ -1,0 +1,211 @@
+.app-root {
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-background-color: #f5f1ea;
+}
+
+.header {
+    -fx-padding: 22 28 18 28;
+    -fx-background-color: linear-gradient(to right, #19323c, #22505a);
+    -fx-border-color: transparent transparent #d7d0c6 transparent;
+}
+
+.brand-title {
+    -fx-font-size: 28px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #fff7e8;
+}
+
+.brand-subtitle {
+    -fx-font-size: 13px;
+    -fx-text-fill: #bee8de;
+}
+
+.sidebar,
+.inspector {
+    -fx-padding: 24;
+    -fx-background-color: #fffaf2;
+    -fx-border-color: transparent #ddd4c8 transparent transparent;
+}
+
+.inspector {
+    -fx-border-color: transparent transparent transparent #ddd4c8;
+}
+
+.section-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #203036;
+}
+
+.file-name {
+    -fx-font-size: 18px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #203036;
+}
+
+.muted-label,
+.metric-caption,
+.detail-key,
+.form-key {
+    -fx-font-size: 12px;
+    -fx-text-fill: #6e766f;
+}
+
+.metric-card {
+    -fx-padding: 18;
+    -fx-background-color: #edf7f2;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: #c7dfd4;
+}
+
+.metric-value {
+    -fx-font-size: 40px;
+    -fx-font-weight: 900;
+    -fx-text-fill: #0f766e;
+}
+
+.toolbar-button,
+.primary-button,
+.quiet-button,
+.danger-button {
+    -fx-min-height: 36px;
+    -fx-padding: 8 16;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-font-weight: 700;
+    -fx-cursor: hand;
+}
+
+.primary-button {
+    -fx-background-color: #0f766e;
+    -fx-text-fill: white;
+}
+
+.primary-button:hover {
+    -fx-background-color: #0b5f59;
+}
+
+.quiet-button {
+    -fx-background-color: #fffaf2;
+    -fx-text-fill: #203036;
+    -fx-border-color: #cfc7ba;
+}
+
+.quiet-button:hover {
+    -fx-background-color: #f0eadf;
+}
+
+.danger-button {
+    -fx-background-color: #fff4f2;
+    -fx-text-fill: #af3029;
+    -fx-border-color: #e0aaa5;
+}
+
+.danger-button:hover {
+    -fx-background-color: #ffe5e1;
+}
+
+.button:disabled,
+.text-field:disabled,
+.password-field:disabled {
+    -fx-opacity: 0.52;
+}
+
+.table-wrap {
+    -fx-padding: 22;
+    -fx-background-color: #f5f1ea;
+}
+
+.alias-table {
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: #d8d0c4;
+    -fx-background-color: #fffdf8;
+    -fx-padding: 4;
+}
+
+.alias-table .column-header-background {
+    -fx-background-color: #203036;
+    -fx-background-radius: 7 7 0 0;
+}
+
+.alias-table .column-header,
+.alias-table .filler {
+    -fx-background-color: transparent;
+    -fx-size: 42px;
+}
+
+.alias-table .column-header .label {
+    -fx-text-fill: #fff7e8;
+    -fx-font-weight: 800;
+}
+
+.alias-table .table-row-cell {
+    -fx-background-color: #fffdf8;
+    -fx-border-color: transparent transparent #ebe4d8 transparent;
+    -fx-cell-size: 46px;
+}
+
+.alias-table .table-row-cell:odd {
+    -fx-background-color: #faf6ee;
+}
+
+.alias-table .table-row-cell:selected {
+    -fx-background-color: #d9f1ea;
+}
+
+.alias-table .table-cell {
+    -fx-alignment: CENTER_LEFT;
+    -fx-padding: 0 12;
+    -fx-text-fill: #233237;
+}
+
+.alias-table .table-cell:expired {
+    -fx-text-fill: #b54708;
+    -fx-font-weight: 800;
+}
+
+.detail-grid {
+    -fx-padding: 12 0 4 0;
+}
+
+.detail-value {
+    -fx-font-size: 13px;
+    -fx-text-fill: #24353a;
+}
+
+.text-field,
+.password-field,
+.combo-box {
+    -fx-min-height: 36px;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-background-color: #fffdf8;
+    -fx-border-color: #cfc7ba;
+}
+
+.text-field:focused,
+.password-field:focused,
+.combo-box:focused {
+    -fx-border-color: #0f766e;
+    -fx-effect: dropshadow(gaussian, rgba(15, 118, 110, 0.18), 10, 0.2, 0, 0);
+}
+
+.status-bar {
+    -fx-padding: 10 22;
+    -fx-background-color: #203036;
+}
+
+.status-label {
+    -fx-text-fill: #e5f5ee;
+    -fx-font-weight: 700;
+}
+
+.status-label:error {
+    -fx-text-fill: #ffd1ca;
+}
+
+.alias-dialog {
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+}
