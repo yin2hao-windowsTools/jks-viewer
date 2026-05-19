@@ -4,10 +4,18 @@ plugins {
 }
 
 group = 'cn.silentcrane'
-version = '1.0.0'
+version = providers.gradleProperty('appVersion').orElse('1.0.0').get()
 
 def javafxVersion = '21.0.8'
 def bouncycastleVersion = '1.84'
+def appDisplayName = 'JKS Viewer'
+def appSlug = 'jks-viewer'
+def appVendor = 'Silent Crane'
+def installerVersion = providers.gradleProperty('installerVersion').orElse(
+        project.version.toString().replaceFirst(/-.*/, '')
+).get()
+def jpackageLibDir = layout.buildDirectory.dir("install/${appSlug}/lib")
+def releaseDir = layout.buildDirectory.dir('release')
 
 java {
     toolchain {
@@ -17,7 +25,7 @@ java {
 
 application {
     mainClass = 'cn.silentcrane.jksviewer.Launcher'
-    applicationName = 'jks-viewer'
+    applicationName = appSlug
 }
 
 dependencies {
@@ -41,38 +49,126 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
-tasks.register('packageWindows', Zip) {
+tasks.register('packageWindows') {
     group = 'distribution'
-    description = 'Builds a Windows runnable zip containing bin/jks-viewer.bat.'
-    dependsOn tasks.named('installDist')
-    archiveFileName.set("jks-viewer-${project.version}-windows.zip")
-    destinationDirectory.set(layout.buildDirectory.dir('distributions'))
-    from(tasks.named('installDist').map { it.destinationDir })
+    description = 'Builds the portable Windows zip. Kept as a compatibility alias.'
+    dependsOn tasks.named('packageWindowsPortable')
 }
 
-tasks.register('packageWindowsApp', Exec) {
+def baseJpackageArgs = { String packageType, Provider<Directory> destinationDir, List<String> extraArgs = [] ->
+    [
+            'jpackage',
+            '--type', packageType,
+            '--name', appDisplayName,
+            '--app-version', installerVersion,
+            '--vendor', appVendor,
+            '--dest', destinationDir.get().asFile.absolutePath,
+            '--input', jpackageLibDir.get().asFile.absolutePath,
+            '--main-jar', "${appSlug}-${project.version}.jar",
+            '--main-class', application.mainClass.get()
+    ] + extraArgs
+}
+
+tasks.register('packageWindowsPortableImage', Exec) {
     group = 'distribution'
-    description = 'Builds a Windows app image with jpackage.'
+    description = 'Builds a portable Windows app image with a bundled runtime.'
     dependsOn tasks.named('installDist')
 
-    def outputDir = layout.buildDirectory.dir('jpackage')
-    inputs.dir(layout.buildDirectory.dir('install/jks-viewer/lib'))
+    def outputDir = layout.buildDirectory.dir('jpackage/portable')
+    inputs.dir(jpackageLibDir)
     outputs.dir(outputDir)
 
     doFirst {
         delete(outputDir)
     }
 
-    commandLine(
-            'jpackage',
-            '--type', 'app-image',
-            '--name', 'JKS Viewer',
-            '--app-version', project.version.toString(),
-            '--vendor', 'Silent Crane',
-            '--dest', outputDir.get().asFile.absolutePath,
-            '--input', layout.buildDirectory.dir('install/jks-viewer/lib').get().asFile.absolutePath,
-            '--main-jar', "jks-viewer-${project.version}.jar",
-            '--main-class', application.mainClass.get(),
-            '--win-console'
-    )
+    commandLine(baseJpackageArgs.call('app-image', outputDir, [
+            '--java-options', '-Djksviewer.portable=true'
+    ]))
+}
+
+tasks.register('packageWindowsPortable', Zip) {
+    group = 'distribution'
+    description = 'Builds the non-invasive portable Windows zip.'
+    dependsOn tasks.named('packageWindowsPortableImage')
+
+    archiveFileName.set("${appSlug}-${project.version}-windows-portable.zip")
+    destinationDirectory.set(releaseDir)
+    from(layout.buildDirectory.dir("jpackage/portable/${appDisplayName}")) {
+        into appDisplayName
+    }
+}
+
+tasks.register('packageWindowsApp') {
+    group = 'distribution'
+    description = 'Builds the portable Windows app image. Kept as a compatibility alias.'
+    dependsOn tasks.named('packageWindowsPortableImage')
+}
+
+tasks.register('packageWindowsExe', Exec) {
+    group = 'distribution'
+    description = 'Builds the Windows EXE installer.'
+    dependsOn tasks.named('installDist')
+
+    def outputDir = layout.buildDirectory.dir('jpackage/exe')
+    def finalFile = releaseDir.map { it.file("${appSlug}-${project.version}-windows-x64.exe") }
+    inputs.dir(jpackageLibDir)
+    outputs.file(finalFile)
+
+    doFirst {
+        delete(outputDir)
+        delete(finalFile)
+        releaseDir.get().asFile.mkdirs()
+    }
+
+    commandLine(baseJpackageArgs.call('exe', outputDir, [
+            '--win-dir-chooser'
+    ]))
+
+    doLast {
+        def generated = fileTree(outputDir).matching { include '*.exe' }.singleFile
+        copy {
+            from generated
+            into releaseDir
+            rename { finalFile.get().asFile.name }
+        }
+    }
+}
+
+tasks.register('packageWindowsMsi', Exec) {
+    group = 'distribution'
+    description = 'Builds the Windows MSI installer.'
+    dependsOn tasks.named('installDist')
+
+    def outputDir = layout.buildDirectory.dir('jpackage/msi')
+    def finalFile = releaseDir.map { it.file("${appSlug}-${project.version}-windows-x64.msi") }
+    inputs.dir(jpackageLibDir)
+    outputs.file(finalFile)
+
+    doFirst {
+        delete(outputDir)
+        delete(finalFile)
+        releaseDir.get().asFile.mkdirs()
+    }
+
+    commandLine(baseJpackageArgs.call('msi', outputDir, [
+            '--win-dir-chooser'
+    ]))
+
+    doLast {
+        def generated = fileTree(outputDir).matching { include '*.msi' }.singleFile
+        copy {
+            from generated
+            into releaseDir
+            rename { finalFile.get().asFile.name }
+        }
+    }
+}
+
+tasks.register('packageWindowsRelease') {
+    group = 'distribution'
+    description = 'Builds EXE, MSI, and portable Windows artifacts.'
+    dependsOn tasks.named('packageWindowsExe')
+    dependsOn tasks.named('packageWindowsMsi')
+    dependsOn tasks.named('packageWindowsPortable')
 }

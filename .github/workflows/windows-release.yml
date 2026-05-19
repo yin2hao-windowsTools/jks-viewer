@@ -1,0 +1,105 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows packages
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Parse version tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v(?<number>\d+(?:\.\d+)*)(?:-(?<suffix>[0-9A-Za-z][0-9A-Za-z.-]*))?$') {
+            throw "Tag '$tag' is invalid. Use v-prefixed numeric tags such as v0.0.1 or v0.0.7-alpha."
+          }
+
+          $segments = @($Matches.number -split '\.')
+          while ($segments.Count -lt 3) {
+            $segments += '0'
+          }
+          $normalizedNumber = ($segments | Select-Object -First 3) -join '.'
+          $suffix = $Matches.suffix
+          $isPrerelease = -not [string]::IsNullOrWhiteSpace($suffix)
+          $appVersion = if ($isPrerelease) { "$normalizedNumber-$suffix" } else { $normalizedNumber }
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "app_version=$appVersion" >> $env:GITHUB_OUTPUT
+          "installer_version=$normalizedNumber" >> $env:GITHUB_OUTPUT
+          "is_prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          choco install wixtoolset -y --no-progress
+          $wixBin = Get-ChildItem "${env:ProgramFiles(x86)}" -Filter candle.exe -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1 |
+            ForEach-Object { $_.DirectoryName }
+          if (-not $wixBin) {
+            $wixBin = Get-ChildItem "C:\ProgramData\chocolatey\lib" -Filter candle.exe -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1 |
+              ForEach-Object { $_.DirectoryName }
+          }
+          if (-not $wixBin) {
+            throw "WiX Toolset was not found after installation."
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $wixBin
+
+      - name: Build EXE, MSI, and portable packages
+        shell: pwsh
+        run: |
+          .\gradlew.bat clean test packageWindowsRelease `
+            "-PappVersion=${{ steps.version.outputs.app_version }}" `
+            "-PinstallerVersion=${{ steps.version.outputs.installer_version }}"
+
+      - name: List release files
+        shell: pwsh
+        run: Get-ChildItem build\release | Format-Table Name, Length
+
+      - name: Upload test build artifacts
+        if: steps.version.outputs.is_prerelease == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jks-viewer-${{ steps.version.outputs.app_version }}-windows
+          path: build/release/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.is_prerelease == 'false'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $title = "JKS Viewer v${{ steps.version.outputs.app_version }}"
+          $notes = @"
+Windows build artifacts:
+- EXE installer
+- MSI installer
+- Portable zip
+"@
+
+          if (gh release view $tag *> $null) {
+            gh release upload $tag build\release\* --clobber
+          } else {
+            gh release create $tag build\release\* --title $title --notes $notes
+          }
