@@ -5,10 +5,8 @@ import cn.silentcrane.jksviewer.model.GeneratedAliasRequest;
 import cn.silentcrane.jksviewer.service.KeystoreDocument;
 import java.io.File;
 import java.nio.file.Path;
-import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import javafx.application.Application;
 import javafx.beans.binding.Bindings;
@@ -45,8 +43,6 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
 public final class JksViewerApp extends Application {
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.CHINA);
-
     private final ObservableList<AliasInfo> aliases = FXCollections.observableArrayList();
 
     private Stage stage;
@@ -55,6 +51,7 @@ public final class JksViewerApp extends Application {
     private Label fileNameLabel;
     private Label filePathLabel;
     private Label aliasCountLabel;
+    private Label storeTypeLabel;
     private Label statusLabel;
     private Label detailAlias;
     private Label detailType;
@@ -143,7 +140,9 @@ public final class JksViewerApp extends Application {
         aliasCountLabel.getStyleClass().add("metric-value");
         Label metricCaption = new Label("alias 总数");
         metricCaption.getStyleClass().add("metric-caption");
-        VBox metric = new VBox(2, aliasCountLabel, metricCaption);
+        storeTypeLabel = new Label("格式: -");
+        storeTypeLabel.getStyleClass().add("metric-caption");
+        VBox metric = new VBox(2, aliasCountLabel, metricCaption, storeTypeLabel);
         metric.getStyleClass().add("metric-card");
 
         addButton = new Button("新增 alias");
@@ -194,7 +193,10 @@ public final class JksViewerApp extends Application {
             protected void updateItem(String item, boolean empty) {
                 super.updateItem(item, empty);
                 setText(empty ? null : item);
-                AliasInfo info = empty ? null : getTableView().getItems().get(getIndex());
+                int rowIndex = getIndex();
+                AliasInfo info = empty || rowIndex < 0 || rowIndex >= getTableView().getItems().size()
+                        ? null
+                        : getTableView().getItems().get(rowIndex);
                 pseudoClassStateChanged(AliasInfo.EXPIRED_PSEUDO_CLASS, info != null && info.isExpired());
             }
         });
@@ -282,7 +284,7 @@ public final class JksViewerApp extends Application {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("打开 Android JKS");
         chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("JKS / Keystore", "*.jks", "*.keystore"),
+                new FileChooser.ExtensionFilter("Android / Java KeyStore", "*.jks", "*.keystore", "*.p12", "*.pfx", "*.bks", "*.bcfks"),
                 new FileChooser.ExtensionFilter("所有文件", "*.*")
         );
         File file = chooser.showOpenDialog(stage);
@@ -293,11 +295,12 @@ public final class JksViewerApp extends Application {
         Optional<char[]> password = showPasswordDialog("输入库密码", "请输入 JKS 文件的库密码。", "库密码");
         password.ifPresent(chars -> {
             try {
+                clearCurrentDocument();
                 document = KeystoreDocument.load(file.toPath(), chars);
                 refreshAliases();
-                setStatus("已打开 " + file.getName() + "。", false);
+                setStatus("已打开 " + file.getName() + "，格式 " + document.storeType() + "。", false);
             } catch (Exception ex) {
-                showError("打开失败", ex.getMessage());
+                showError("打开失败", userFacingMessage(ex));
                 setStatus("打开失败，请确认库密码和文件格式。", true);
             } finally {
                 Arrays.fill(chars, '\0');
@@ -321,12 +324,14 @@ public final class JksViewerApp extends Application {
                 if (chars.length < 6) {
                     throw new IllegalArgumentException("库密码至少需要 6 位。");
                 }
-                document = KeystoreDocument.create(file.toPath(), chars);
-                document.save();
+                KeystoreDocument created = KeystoreDocument.create(file.toPath(), chars);
+                created.save();
+                clearCurrentDocument();
+                document = created;
                 refreshAliases();
-                setStatus("已创建新的 JKS 文件。", false);
+                setStatus("已创建新的 JKS 文件，格式 " + document.storeType() + "。", false);
             } catch (Exception ex) {
-                showError("创建失败", ex.getMessage());
+                showError("创建失败", userFacingMessage(ex));
                 setStatus("创建失败。", true);
             } finally {
                 Arrays.fill(chars, '\0');
@@ -342,7 +347,7 @@ public final class JksViewerApp extends Application {
             document.save();
             setStatus("已保存到 " + document.path().getFileName() + "。", false);
         } catch (Exception ex) {
-            showError("保存失败", ex.getMessage());
+            showError("保存失败", userFacingMessage(ex));
             setStatus("保存失败。", true);
         }
     }
@@ -418,15 +423,21 @@ public final class JksViewerApp extends Application {
         });
 
         dialog.showAndWait().ifPresent(request -> {
+            boolean changedInMemory = false;
             try {
                 document.addGeneratedAlias(request);
+                changedInMemory = true;
                 document.save();
                 refreshAliases();
                 selectAlias(request.alias());
                 setStatus("已新增 alias: " + request.alias() + "。", false);
             } catch (Exception ex) {
-                showError("新增失败", ex.getMessage());
-                setStatus("新增 alias 失败。", true);
+                if (changedInMemory) {
+                    recoverAfterMutatingFailure("新增失败", ex, "新增 alias 失败，已尝试重新加载磁盘中的原文件。");
+                } else {
+                    showError("新增失败", userFacingMessage(ex));
+                    setStatus("新增 alias 失败。", true);
+                }
             } finally {
                 request.clearPasswords();
             }
@@ -455,14 +466,20 @@ public final class JksViewerApp extends Application {
         if (result.isEmpty() || result.get() != ButtonType.OK) {
             return;
         }
+        boolean changedInMemory = false;
         try {
             document.deleteAlias(selected.getAlias());
+            changedInMemory = true;
             document.save();
             refreshAliases();
             setStatus("已删除 alias: " + selected.getAlias() + "。", false);
         } catch (Exception ex) {
-            showError("删除失败", ex.getMessage());
-            setStatus("删除 alias 失败。", true);
+            if (changedInMemory) {
+                recoverAfterMutatingFailure("删除失败", ex, "删除 alias 失败，已尝试重新加载磁盘中的原文件。");
+            } else {
+                showError("删除失败", userFacingMessage(ex));
+                setStatus("删除 alias 失败。", true);
+            }
         }
     }
 
@@ -480,7 +497,7 @@ public final class JksViewerApp extends Application {
                 setStatus("alias [" + selected.getAlias() + "] 密码不正确。", true);
             }
         } catch (Exception ex) {
-            showError("验证失败", ex.getMessage());
+            showError("验证失败", userFacingMessage(ex));
             setStatus("验证失败。", true);
         } finally {
             Arrays.fill(password, '\0');
@@ -502,8 +519,6 @@ public final class JksViewerApp extends Application {
         content.setPadding(new Insets(8, 0, 0, 0));
         dialog.getDialogPane().setContent(content);
 
-        Button okButton = (Button) dialog.getDialogPane().lookupButton(okType);
-        okButton.disableProperty().bind(passwordField.textProperty().isEmpty());
         dialog.setResultConverter(button -> button == okType ? passwordField.getText().toCharArray() : null);
         return dialog.showAndWait();
     }
@@ -532,6 +547,7 @@ public final class JksViewerApp extends Application {
         fileNameLabel.setText(hasDocument ? path.getFileName().toString() : "未打开");
         filePathLabel.setText(hasDocument ? path.toAbsolutePath().toString() : "打开 JKS 后会在这里显示文件路径");
         aliasCountLabel.setText(Integer.toString(aliases.size()));
+        storeTypeLabel.setText(hasDocument ? "格式: " + document.storeType() : "格式: -");
         saveButton.setDisable(!hasDocument);
         addButton.setDisable(!hasDocument);
     }
@@ -575,5 +591,46 @@ public final class JksViewerApp extends Application {
         alert.setContentText(message == null ? "未知错误" : message);
         alert.initOwner(stage);
         alert.showAndWait();
+    }
+
+    private void clearCurrentDocument() {
+        if (document != null) {
+            document.clearPassword();
+        }
+        aliases.clear();
+        aliasPasswordField.clear();
+        document = null;
+        updateDocumentSummary();
+        renderAliasDetails(null);
+        updateActionState();
+    }
+
+    private void recoverAfterMutatingFailure(String title, Exception ex, String statusMessage) {
+        try {
+            if (document != null) {
+                document.reload();
+                refreshAliases();
+            }
+        } catch (Exception reloadFailure) {
+            ex.addSuppressed(reloadFailure);
+        }
+        showError(title, userFacingMessage(ex));
+        setStatus(statusMessage, true);
+    }
+
+    private String userFacingMessage(Exception ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            message = ex.getClass().getSimpleName();
+        }
+        Throwable cause = ex.getCause();
+        if (cause != null && cause.getMessage() != null && !cause.getMessage().isBlank()) {
+            message += System.lineSeparator() + "原因: " + cause.getMessage();
+        }
+        Throwable[] suppressed = ex.getSuppressed();
+        if (suppressed.length > 0) {
+            message += System.lineSeparator() + "恢复提示: " + suppressed[0].getMessage();
+        }
+        return message;
     }
 }
