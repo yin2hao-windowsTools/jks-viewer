@@ -169,6 +169,37 @@ final class KeystoreDocumentTest {
     }
 
     @Test
+    void addAliasIsNotPersistedBeforeSave() throws Exception {
+        Path path = tempDir.resolve("deferred-add.jks");
+        char[] storePassword = "storepass".toCharArray();
+        KeystoreDocument document = KeystoreDocument.create(path, storePassword);
+        document.save();
+
+        document.addGeneratedAlias(request("release", "aliaspass"));
+
+        assertEquals(0, KeystoreDocument.load(path, storePassword).listAliases().size());
+
+        document.save();
+        assertEquals(1, KeystoreDocument.load(path, storePassword).listAliases().size());
+    }
+
+    @Test
+    void deleteAliasIsNotPersistedBeforeSave() throws Exception {
+        Path path = tempDir.resolve("deferred-delete.jks");
+        char[] storePassword = "storepass".toCharArray();
+        KeystoreDocument document = KeystoreDocument.create(path, storePassword);
+        document.addGeneratedAlias(request("release", "aliaspass"));
+        document.save();
+
+        document.deleteAlias("release");
+
+        assertEquals(1, KeystoreDocument.load(path, storePassword).listAliases().size());
+
+        document.save();
+        assertEquals(0, KeystoreDocument.load(path, storePassword).listAliases().size());
+    }
+
+    @Test
     void saveDoesNotOverwriteNeighborTmpFile() throws Exception {
         Path path = tempDir.resolve("release.jks");
         Path neighborTmp = tempDir.resolve("release.jks.tmp");

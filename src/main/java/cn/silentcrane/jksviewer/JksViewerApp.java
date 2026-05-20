@@ -77,11 +77,14 @@ public final class JksViewerApp extends Application {
     private Button addButton;
     private Button deleteButton;
     private Button saveButton;
+    private Button discardButton;
     private Button verifyButton;
     private Label passwordFeedbackLabel;
     private ListView<String> failedPasswordList;
     private StackPane dropOverlay;
     private boolean showingAliasPassword;
+    private boolean hasUnsavedChanges;
+    private boolean newDocumentPendingSave;
 
     public static void main(String[] args) {
         launch(args);
@@ -108,9 +111,21 @@ public final class JksViewerApp extends Application {
         primaryStage.setMinWidth(1020);
         primaryStage.setMinHeight(660);
         primaryStage.setScene(scene);
+        primaryStage.setOnCloseRequest(event -> {
+            if (!confirmDiscardUnsavedChanges("关闭程序")) {
+                event.consume();
+            }
+        });
         primaryStage.show();
         updateDocumentSummary();
         setStatus("请选择或拖入一个 Android JKS 文件开始。", false);
+    }
+
+    @Override
+    public void stop() {
+        if (document != null) {
+            document.clearPassword();
+        }
     }
 
     private StackPane createDropOverlay() {
@@ -212,10 +227,16 @@ public final class JksViewerApp extends Application {
         saveButton.setDisable(true);
         saveButton.setOnAction(event -> saveKeystore());
 
+        discardButton = new Button("放弃修改");
+        discardButton.getStyleClass().addAll("danger-button", "toolbar-button");
+        discardButton.setTooltip(new Tooltip("放弃尚未保存的新增或删除"));
+        discardButton.setDisable(true);
+        discardButton.setOnAction(event -> discardUnsavedChanges());
+
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox header = new HBox(14, copy, spacer, openButton, newButton, saveButton);
+        HBox header = new HBox(14, copy, spacer, openButton, newButton, discardButton, saveButton);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         return header;
@@ -439,15 +460,26 @@ public final class JksViewerApp extends Application {
     private void openKeystoreFile(File file) {
         Optional<char[]> password = showPasswordDialog("输入库密码", "请输入 JKS 文件的库密码。", "库密码");
         password.ifPresent(chars -> {
+            KeystoreDocument loaded = null;
             try {
+                loaded = KeystoreDocument.load(file.toPath(), chars);
+                if (!confirmDiscardUnsavedChanges("打开其他文件")) {
+                    return;
+                }
                 clearCurrentDocument();
-                document = KeystoreDocument.load(file.toPath(), chars);
+                document = loaded;
+                loaded = null;
+                hasUnsavedChanges = false;
+                newDocumentPendingSave = false;
                 refreshAliases();
                 setStatus("已打开 " + file.getName() + "，格式 " + document.storeType() + "。", false);
             } catch (Exception ex) {
                 showError("打开失败", userFacingMessage(ex));
                 setStatus("打开失败，请确认库密码和文件格式。", true);
             } finally {
+                if (loaded != null) {
+                    loaded.clearPassword();
+                }
                 Arrays.fill(chars, '\0');
             }
         });
@@ -465,20 +497,29 @@ public final class JksViewerApp extends Application {
 
         Optional<char[]> password = showPasswordDialog("设置库密码", "请设置新 JKS 文件的库密码。", "至少 6 位");
         password.ifPresent(chars -> {
+            KeystoreDocument created = null;
             try {
                 if (chars.length < 6) {
                     throw new IllegalArgumentException("库密码至少需要 6 位。");
                 }
-                KeystoreDocument created = KeystoreDocument.create(file.toPath(), chars);
-                created.save();
+                created = KeystoreDocument.create(file.toPath(), chars);
+                if (!confirmDiscardUnsavedChanges("新建文件")) {
+                    return;
+                }
                 clearCurrentDocument();
                 document = created;
+                created = null;
+                hasUnsavedChanges = true;
+                newDocumentPendingSave = true;
                 refreshAliases();
-                setStatus("已创建新的 JKS 文件，格式 " + document.storeType() + "。", false);
+                setStatus("已预存新的 JKS 文件，点击“保存文件”后写入磁盘。", false);
             } catch (Exception ex) {
                 showError("创建失败", userFacingMessage(ex));
                 setStatus("创建失败。", true);
             } finally {
+                if (created != null) {
+                    created.clearPassword();
+                }
                 Arrays.fill(chars, '\0');
             }
         });
@@ -488,12 +529,43 @@ public final class JksViewerApp extends Application {
         if (document == null) {
             return;
         }
+        if (!hasUnsavedChanges) {
+            setStatus("当前没有需要保存的修改。", false);
+            return;
+        }
         try {
             document.save();
+            hasUnsavedChanges = false;
+            newDocumentPendingSave = false;
+            updateDocumentSummary();
             setStatus("已保存到 " + document.path().getFileName() + "。", false);
         } catch (Exception ex) {
             showError("保存失败", userFacingMessage(ex));
             setStatus("保存失败。", true);
+        }
+    }
+
+    private void discardUnsavedChanges() {
+        if (document == null || !hasUnsavedChanges) {
+            return;
+        }
+        if (!confirmDiscardUnsavedChanges("放弃修改")) {
+            return;
+        }
+        try {
+            if (newDocumentPendingSave) {
+                clearCurrentDocument();
+                setStatus("已放弃新建的 JKS 文件。", false);
+                return;
+            }
+            document.reload();
+            hasUnsavedChanges = false;
+            clearAliasInteractionState();
+            refreshAliases();
+            setStatus("已放弃未保存修改，并从磁盘重新加载。", false);
+        } catch (Exception ex) {
+            showError("放弃修改失败", userFacingMessage(ex));
+            setStatus("放弃修改失败。", true);
         }
     }
 
@@ -580,21 +652,15 @@ public final class JksViewerApp extends Application {
         });
 
         dialog.showAndWait().ifPresent(request -> {
-            boolean changedInMemory = false;
             try {
                 document.addGeneratedAlias(request);
-                changedInMemory = true;
-                document.save();
+                hasUnsavedChanges = true;
                 refreshAliases();
                 selectAlias(request.alias());
-                setStatus("已新增 alias: " + request.alias() + "。", false);
+                setStatus("已预存新增 alias: " + request.alias() + "，点击“保存文件”后写入磁盘。", false);
             } catch (Exception ex) {
-                if (changedInMemory) {
-                    recoverAfterMutatingFailure("新增失败", ex, "新增 alias 失败，已尝试重新加载磁盘中的原文件。");
-                } else {
-                    showError("新增失败", userFacingMessage(ex));
-                    setStatus("新增 alias 失败。", true);
-                }
+                showError("新增失败", userFacingMessage(ex));
+                setStatus("新增 alias 失败。", true);
             } finally {
                 request.clearPasswords();
             }
@@ -620,7 +686,7 @@ public final class JksViewerApp extends Application {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         confirm.setTitle("删除 alias");
         confirm.setHeaderText("确认删除 " + selected.getAlias() + "？");
-        confirm.setContentText("删除后会立即保存到当前 JKS 文件。");
+        confirm.setContentText("删除会先保存在当前编辑内容中，点击“保存文件”后才会写入磁盘。");
         confirm.initOwner(stage);
         styleDialog(confirm.getDialogPane());
         Button okButton = (Button) confirm.getDialogPane().lookupButton(ButtonType.OK);
@@ -629,21 +695,15 @@ public final class JksViewerApp extends Application {
         if (result.isEmpty() || result.get() != ButtonType.OK) {
             return;
         }
-        boolean changedInMemory = false;
         try {
             document.deleteAlias(selected.getAlias());
-            changedInMemory = true;
-            document.save();
+            hasUnsavedChanges = true;
             failedPasswordsByAlias.remove(selected.getAlias());
             refreshAliases();
-            setStatus("已删除 alias: " + selected.getAlias() + "。", false);
+            setStatus("已预存删除 alias: " + selected.getAlias() + "，点击“保存文件”后写入磁盘。", false);
         } catch (Exception ex) {
-            if (changedInMemory) {
-                recoverAfterMutatingFailure("删除失败", ex, "删除 alias 失败，已尝试重新加载磁盘中的原文件。");
-            } else {
-                showError("删除失败", userFacingMessage(ex));
-                setStatus("删除 alias 失败。", true);
-            }
+            showError("删除失败", userFacingMessage(ex));
+            setStatus("删除 alias 失败。", true);
         }
     }
 
@@ -755,12 +815,32 @@ public final class JksViewerApp extends Application {
     private void updateDocumentSummary() {
         boolean hasDocument = document != null;
         Path path = hasDocument ? document.path() : null;
-        fileNameLabel.setText(hasDocument ? path.getFileName().toString() : "未打开");
-        filePathLabel.setText(hasDocument ? path.toAbsolutePath().toString() : "打开 JKS 后会在这里显示文件路径");
+        fileNameLabel.setText(hasDocument ? displayFileName(path) : "未打开");
+        filePathLabel.setText(hasDocument ? displayFilePath(path) : "打开 JKS 后会在这里显示文件路径");
         aliasCountLabel.setText(Integer.toString(aliases.size()));
-        storeTypeLabel.setText(hasDocument ? "格式: " + document.storeType() : "格式: -");
-        saveButton.setDisable(!hasDocument);
+        storeTypeLabel.setText(hasDocument ? displayStoreType() : "格式: -");
+        saveButton.setDisable(!hasDocument || !hasUnsavedChanges);
+        saveButton.setText(hasUnsavedChanges ? "保存文件 *" : "保存文件");
+        discardButton.setDisable(!hasDocument || !hasUnsavedChanges);
         addButton.setDisable(!hasDocument);
+    }
+
+    private String displayFileName(Path path) {
+        String name = path.getFileName().toString();
+        return hasUnsavedChanges ? name + "（未保存）" : name;
+    }
+
+    private String displayFilePath(Path path) {
+        String absolutePath = path.toAbsolutePath().toString();
+        if (newDocumentPendingSave) {
+            return "尚未写入磁盘，保存后写入: " + absolutePath;
+        }
+        return absolutePath;
+    }
+
+    private String displayStoreType() {
+        String text = "格式: " + document.storeType();
+        return hasUnsavedChanges ? text + " · 未保存修改" : text;
     }
 
     private void updateActionState() {
@@ -817,21 +897,48 @@ public final class JksViewerApp extends Application {
         dialogPane.getStyleClass().add("app-dialog");
     }
 
+    private boolean confirmDiscardUnsavedChanges(String action) {
+        if (!hasUnsavedChanges) {
+            return true;
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle(action);
+        confirm.setHeaderText("有未保存的修改");
+        confirm.setContentText("当前新增或删除的 alias 只预存在内存中。继续" + action + "会放弃这些未保存修改。");
+        confirm.initOwner(stage);
+        styleDialog(confirm.getDialogPane());
+
+        ButtonType discardType = new ButtonType("放弃修改", ButtonBar.ButtonData.OK_DONE);
+        confirm.getButtonTypes().setAll(discardType, ButtonType.CANCEL);
+        Button discardButtonNode = (Button) confirm.getDialogPane().lookupButton(discardType);
+        discardButtonNode.getStyleClass().add("danger-button");
+
+        Optional<ButtonType> result = confirm.showAndWait();
+        return result.isPresent() && result.get() == discardType;
+    }
+
     private void clearCurrentDocument() {
         if (document != null) {
             document.clearPassword();
         }
         aliases.clear();
+        clearAliasInteractionState();
+        document = null;
+        hasUnsavedChanges = false;
+        newDocumentPendingSave = false;
+        updateDocumentSummary();
+        renderAliasDetails(null);
+        updateActionState();
+    }
+
+    private void clearAliasInteractionState() {
         failedPasswordsByAlias.clear();
         failedPasswordItems.clear();
+        aliasTable.getSelectionModel().clearSelection();
         aliasPasswordField.clear();
         visibleAliasPasswordField.clear();
         showingAliasPassword = false;
         syncPasswordVisibility();
-        document = null;
-        updateDocumentSummary();
-        renderAliasDetails(null);
-        updateActionState();
     }
 
     private void toggleAliasPasswordVisibility() {
@@ -899,19 +1006,6 @@ public final class JksViewerApp extends Application {
         passwordFeedbackLabel.setText(message);
         passwordFeedbackLabel.getStyleClass().removeAll("feedback-success", "feedback-error", "feedback-neutral");
         passwordFeedbackLabel.getStyleClass().add("feedback-" + state);
-    }
-
-    private void recoverAfterMutatingFailure(String title, Exception ex, String statusMessage) {
-        try {
-            if (document != null) {
-                document.reload();
-                refreshAliases();
-            }
-        } catch (Exception reloadFailure) {
-            ex.addSuppressed(reloadFailure);
-        }
-        showError(title, userFacingMessage(ex));
-        setStatus(statusMessage, true);
     }
 
     private String userFacingMessage(Exception ex) {
