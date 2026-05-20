@@ -3,7 +3,7 @@ name: Windows Release
 on:
   push:
     tags:
-      - 'v[0-9]*'
+      - 'v*'
 
 permissions:
   contents: write
@@ -26,42 +26,11 @@ jobs:
       - name: Parse version tag
         id: version
         shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}"
-          if ($tag -notmatch '^v(?<number>\d+(?:\.\d+)*)(?:-(?<suffix>[0-9A-Za-z][0-9A-Za-z.-]*))?$') {
-            throw "Tag '$tag' is invalid. Use v-prefixed numeric tags such as v0.0.1 or v0.0.7-alpha."
-          }
-
-          $segments = @($Matches.number -split '\.')
-          while ($segments.Count -lt 3) {
-            $segments += '0'
-          }
-          $normalizedNumber = ($segments | Select-Object -First 3) -join '.'
-          $suffix = $Matches.suffix
-          $isPrerelease = -not [string]::IsNullOrWhiteSpace($suffix)
-          $appVersion = if ($isPrerelease) { "$normalizedNumber-$suffix" } else { $normalizedNumber }
-
-          "tag=$tag" >> $env:GITHUB_OUTPUT
-          "app_version=$appVersion" >> $env:GITHUB_OUTPUT
-          "installer_version=$normalizedNumber" >> $env:GITHUB_OUTPUT
-          "is_prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+        run: .\.github\scripts\windows-release.ps1 parse-version -Tag '${{ github.ref_name }}'
 
       - name: Install WiX Toolset
         shell: pwsh
-        run: |
-          choco install wixtoolset -y --no-progress
-          $wixBin = Get-ChildItem "${env:ProgramFiles(x86)}" -Filter candle.exe -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 1 |
-            ForEach-Object { $_.DirectoryName }
-          if (-not $wixBin) {
-            $wixBin = Get-ChildItem "C:\ProgramData\chocolatey\lib" -Filter candle.exe -Recurse -ErrorAction SilentlyContinue |
-              Select-Object -First 1 |
-              ForEach-Object { $_.DirectoryName }
-          }
-          if (-not $wixBin) {
-            throw "WiX Toolset was not found after installation."
-          }
-          Add-Content -Path $env:GITHUB_PATH -Value $wixBin
+        run: .\.github\scripts\windows-release.ps1 install-wix
 
       - name: Build EXE, MSI, and portable packages
         shell: pwsh
@@ -89,17 +58,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "${{ steps.version.outputs.tag }}"
-          $title = "JKS Viewer v${{ steps.version.outputs.app_version }}"
-          $notes = @"
-Windows build artifacts:
-- EXE installer
-- MSI installer
-- Portable zip
-"@
-
-          if (gh release view $tag *> $null) {
-            gh release upload $tag build\release\* --clobber
-          } else {
-            gh release create $tag build\release\* --title $title --notes $notes
-          }
+          .\.github\scripts\windows-release.ps1 publish-release `
+            -Tag '${{ steps.version.outputs.tag }}' `
+            -AppVersion '${{ steps.version.outputs.app_version }}' `
+            -ReleaseDir build\release
