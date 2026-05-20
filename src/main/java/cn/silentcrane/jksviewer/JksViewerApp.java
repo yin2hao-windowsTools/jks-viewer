@@ -5,9 +5,14 @@ import cn.silentcrane.jksviewer.model.GeneratedAliasRequest;
 import cn.silentcrane.jksviewer.service.KeystoreDocument;
 import java.io.File;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import javafx.application.Application;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
@@ -23,6 +28,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.Separator;
@@ -45,6 +51,8 @@ import javafx.stage.Stage;
 
 public final class JksViewerApp extends Application {
     private final ObservableList<AliasInfo> aliases = FXCollections.observableArrayList();
+    private final ObservableList<String> failedPasswordItems = FXCollections.observableArrayList();
+    private final Map<String, LinkedHashSet<String>> failedPasswordsByAlias = new HashMap<>();
 
     private Stage stage;
     private KeystoreDocument document;
@@ -62,10 +70,15 @@ public final class JksViewerApp extends Application {
     private Label detailSerial;
     private Label detailAlgorithm;
     private PasswordField aliasPasswordField;
+    private TextField visibleAliasPasswordField;
+    private Button togglePasswordButton;
     private Button addButton;
     private Button deleteButton;
     private Button saveButton;
     private Button verifyButton;
+    private Label passwordFeedbackLabel;
+    private ListView<String> failedPasswordList;
+    private boolean showingAliasPassword;
 
     public static void main(String[] args) {
         launch(args);
@@ -248,13 +261,57 @@ public final class JksViewerApp extends Application {
         aliasPasswordField.setDisable(true);
         aliasPasswordField.setOnAction(event -> verifySelectedAliasPassword());
 
+        visibleAliasPasswordField = new TextField();
+        visibleAliasPasswordField.setPromptText("输入当前 alias 的密码");
+        visibleAliasPasswordField.setDisable(true);
+        visibleAliasPasswordField.setVisible(false);
+        visibleAliasPasswordField.setManaged(false);
+        visibleAliasPasswordField.setOnAction(event -> verifySelectedAliasPassword());
+        aliasPasswordField.textProperty().bindBidirectional(visibleAliasPasswordField.textProperty());
+
+        StackPane passwordFieldStack = new StackPane(aliasPasswordField, visibleAliasPasswordField);
+        HBox.setHgrow(passwordFieldStack, Priority.ALWAYS);
+
+        togglePasswordButton = new Button("显示");
+        togglePasswordButton.getStyleClass().add("quiet-button");
+        togglePasswordButton.setTooltip(new Tooltip("显示或隐藏当前输入的 alias 密码"));
+        togglePasswordButton.setDisable(true);
+        togglePasswordButton.setOnAction(event -> toggleAliasPasswordVisibility());
+
+        HBox passwordInputRow = new HBox(8, passwordFieldStack, togglePasswordButton);
+        passwordInputRow.getStyleClass().add("password-row");
+
         verifyButton = new Button("验证密码");
         verifyButton.getStyleClass().add("primary-button");
         verifyButton.setMaxWidth(Double.MAX_VALUE);
         verifyButton.setDisable(true);
         verifyButton.setOnAction(event -> verifySelectedAliasPassword());
 
-        VBox inspector = new VBox(16, title, details, new Separator(), testerTitle, aliasPasswordField, verifyButton);
+        passwordFeedbackLabel = new Label("等待输入 alias 密码");
+        passwordFeedbackLabel.getStyleClass().add("password-feedback");
+        passwordFeedbackLabel.setWrapText(true);
+
+        Label failedTitle = new Label("已失败的密码");
+        failedTitle.getStyleClass().add("section-title");
+        failedPasswordList = new ListView<>(failedPasswordItems);
+        failedPasswordList.getStyleClass().add("failed-password-list");
+        failedPasswordList.setPlaceholder(new Label("暂无失败记录"));
+        failedPasswordList.setPrefHeight(118);
+        failedPasswordList.setFocusTraversable(false);
+        failedPasswordList.setMouseTransparent(true);
+
+        VBox inspector = new VBox(
+                16,
+                title,
+                details,
+                new Separator(),
+                testerTitle,
+                passwordInputRow,
+                verifyButton,
+                passwordFeedbackLabel,
+                failedTitle,
+                failedPasswordList
+        );
         inspector.getStyleClass().add("inspector");
         inspector.setPrefWidth(340);
         return inspector;
@@ -372,6 +429,7 @@ public final class JksViewerApp extends Application {
         aliasField.setPromptText("例如 release");
         PasswordField passwordField = new PasswordField();
         passwordField.setPromptText("alias 密码");
+        HBox passwordRow = createRevealablePasswordInput(passwordField);
         TextField commonNameField = new TextField("Android App Signing");
         TextField organizationField = new TextField("Example");
         TextField organizationUnitField = new TextField("Mobile");
@@ -389,7 +447,7 @@ public final class JksViewerApp extends Application {
         form.setVgap(10);
         form.getColumnConstraints().addAll(new ColumnConstraints(110), new ColumnConstraints(280));
         addField(form, 0, "Alias", aliasField);
-        addField(form, 1, "密码", passwordField);
+        addField(form, 1, "密码", passwordRow);
         addField(form, 2, "通用名 CN", commonNameField);
         addField(form, 3, "组织 O", organizationField);
         addField(form, 4, "部门 OU", organizationUnitField);
@@ -478,6 +536,7 @@ public final class JksViewerApp extends Application {
             document.deleteAlias(selected.getAlias());
             changedInMemory = true;
             document.save();
+            failedPasswordsByAlias.remove(selected.getAlias());
             refreshAliases();
             setStatus("已删除 alias: " + selected.getAlias() + "。", false);
         } catch (Exception ex) {
@@ -495,16 +554,22 @@ public final class JksViewerApp extends Application {
         if (selected == null || document == null) {
             return;
         }
-        char[] password = aliasPasswordField.getText().toCharArray();
+        String passwordText = aliasPasswordField.getText();
+        char[] password = passwordText.toCharArray();
         try {
             boolean ok = document.verifyAliasPassword(selected.getAlias(), password);
             if (ok) {
+                removeFailedPassword(selected.getAlias(), passwordText);
+                setPasswordFeedback("密码正确，可以解锁 alias [" + selected.getAlias() + "]。", "success");
                 setStatus("alias [" + selected.getAlias() + "] 密码正确。", false);
             } else {
+                rememberFailedPassword(selected.getAlias(), passwordText);
+                setPasswordFeedback("密码不正确，已加入当前 alias 的失败记录。", "error");
                 setStatus("alias [" + selected.getAlias() + "] 密码不正确。", true);
             }
         } catch (Exception ex) {
             showError("验证失败", userFacingMessage(ex));
+            setPasswordFeedback("验证失败：" + userFacingMessage(ex), "error");
             setStatus("验证失败。", true);
         } finally {
             Arrays.fill(password, '\0');
@@ -523,7 +588,7 @@ public final class JksViewerApp extends Application {
         PasswordField passwordField = new PasswordField();
         passwordField.setPromptText(prompt);
         passwordField.setMinWidth(320);
-        VBox content = new VBox(10, new Label("密码"), passwordField);
+        VBox content = new VBox(10, new Label("密码"), createRevealablePasswordInput(passwordField));
         content.setPadding(new Insets(8, 0, 0, 0));
         dialog.getDialogPane().setContent(content);
 
@@ -531,6 +596,40 @@ public final class JksViewerApp extends Application {
         okButton.getStyleClass().add("primary-button");
         dialog.setResultConverter(button -> button == okType ? passwordField.getText().toCharArray() : null);
         return dialog.showAndWait();
+    }
+
+    private HBox createRevealablePasswordInput(PasswordField passwordField) {
+        TextField visibleField = new TextField();
+        visibleField.promptTextProperty().bind(passwordField.promptTextProperty());
+        visibleField.textProperty().bindBidirectional(passwordField.textProperty());
+        visibleField.setVisible(false);
+        visibleField.setManaged(false);
+
+        StackPane fieldStack = new StackPane(passwordField, visibleField);
+        HBox.setHgrow(fieldStack, Priority.ALWAYS);
+
+        Button toggleButton = new Button("显示");
+        toggleButton.getStyleClass().add("quiet-button");
+        toggleButton.setTooltip(new Tooltip("显示或隐藏当前输入的密码"));
+        toggleButton.setOnAction(event -> {
+            boolean show = !visibleField.isVisible();
+            passwordField.setVisible(!show);
+            passwordField.setManaged(!show);
+            visibleField.setVisible(show);
+            visibleField.setManaged(show);
+            toggleButton.setText(show ? "隐藏" : "显示");
+            if (show) {
+                visibleField.requestFocus();
+                visibleField.positionCaret(visibleField.getText().length());
+            } else {
+                passwordField.requestFocus();
+                passwordField.positionCaret(passwordField.getText().length());
+            }
+        });
+
+        HBox row = new HBox(8, fieldStack, toggleButton);
+        row.getStyleClass().add("password-row");
+        return row;
     }
 
     private void refreshAliases() throws Exception {
@@ -567,6 +666,9 @@ public final class JksViewerApp extends Application {
         deleteButton.setDisable(document == null || !hasSelection);
         verifyButton.setDisable(document == null || !hasSelection);
         aliasPasswordField.setDisable(document == null || !hasSelection);
+        visibleAliasPasswordField.setDisable(document == null || !hasSelection);
+        togglePasswordButton.setDisable(document == null || !hasSelection);
+        refreshFailedPasswordList();
     }
 
     private void renderAliasDetails(AliasInfo info) {
@@ -578,6 +680,8 @@ public final class JksViewerApp extends Application {
             detailValidity.setText("-");
             detailSerial.setText("-");
             detailAlgorithm.setText("-");
+            setPasswordFeedback("等待选择 alias", "neutral");
+            refreshFailedPasswordList();
             return;
         }
         detailAlias.setText(info.getAlias());
@@ -587,6 +691,8 @@ public final class JksViewerApp extends Application {
         detailValidity.setText(info.getValidityText());
         detailSerial.setText(info.getSerialNumber());
         detailAlgorithm.setText(info.getSignatureAlgorithm() + " / " + info.getPublicKeyAlgorithm());
+        setPasswordFeedback("等待输入 alias [" + info.getAlias() + "] 的密码", "neutral");
+        refreshFailedPasswordList();
     }
 
     private void setStatus(String message, boolean error) {
@@ -614,11 +720,83 @@ public final class JksViewerApp extends Application {
             document.clearPassword();
         }
         aliases.clear();
+        failedPasswordsByAlias.clear();
+        failedPasswordItems.clear();
         aliasPasswordField.clear();
+        visibleAliasPasswordField.clear();
+        showingAliasPassword = false;
+        syncPasswordVisibility();
         document = null;
         updateDocumentSummary();
         renderAliasDetails(null);
         updateActionState();
+    }
+
+    private void toggleAliasPasswordVisibility() {
+        showingAliasPassword = !showingAliasPassword;
+        syncPasswordVisibility();
+        if (showingAliasPassword) {
+            visibleAliasPasswordField.requestFocus();
+            visibleAliasPasswordField.positionCaret(visibleAliasPasswordField.getText().length());
+        } else {
+            aliasPasswordField.requestFocus();
+            aliasPasswordField.positionCaret(aliasPasswordField.getText().length());
+        }
+    }
+
+    private void syncPasswordVisibility() {
+        aliasPasswordField.setVisible(!showingAliasPassword);
+        aliasPasswordField.setManaged(!showingAliasPassword);
+        visibleAliasPasswordField.setVisible(showingAliasPassword);
+        visibleAliasPasswordField.setManaged(showingAliasPassword);
+        if (togglePasswordButton != null) {
+            togglePasswordButton.setText(showingAliasPassword ? "隐藏" : "显示");
+        }
+    }
+
+    private void rememberFailedPassword(String alias, String passwordText) {
+        if (passwordText == null || passwordText.isEmpty()) {
+            return;
+        }
+        failedPasswordsByAlias
+                .computeIfAbsent(alias, key -> new LinkedHashSet<>())
+                .add(passwordText);
+        refreshFailedPasswordList();
+    }
+
+    private void removeFailedPassword(String alias, String passwordText) {
+        Set<String> failedPasswords = failedPasswordsByAlias.get(alias);
+        if (failedPasswords == null) {
+            return;
+        }
+        failedPasswords.remove(passwordText);
+        if (failedPasswords.isEmpty()) {
+            failedPasswordsByAlias.remove(alias);
+        }
+        refreshFailedPasswordList();
+    }
+
+    private void refreshFailedPasswordList() {
+        AliasInfo selected = aliasTable == null ? null : aliasTable.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            failedPasswordItems.clear();
+            return;
+        }
+        Set<String> failedPasswords = failedPasswordsByAlias.get(selected.getAlias());
+        if (failedPasswords == null || failedPasswords.isEmpty()) {
+            failedPasswordItems.clear();
+            return;
+        }
+        failedPasswordItems.setAll(new ArrayList<>(failedPasswords));
+    }
+
+    private void setPasswordFeedback(String message, String state) {
+        if (passwordFeedbackLabel == null) {
+            return;
+        }
+        passwordFeedbackLabel.setText(message);
+        passwordFeedbackLabel.getStyleClass().removeAll("feedback-success", "feedback-error", "feedback-neutral");
+        passwordFeedbackLabel.getStyleClass().add("feedback-" + state);
     }
 
     private void recoverAfterMutatingFailure(String title, Exception ex, String statusMessage) {

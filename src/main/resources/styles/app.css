@@ -111,7 +111,8 @@
 
 .button:disabled,
 .text-field:disabled,
-.password-field:disabled {
+.password-field:disabled,
+.list-view:disabled {
     -fx-opacity: 0.52;
 }
 
@@ -210,6 +211,60 @@
 
 .status-label:error {
     -fx-text-fill: #b42318;
+}
+
+.password-row {
+    -fx-alignment: CENTER_LEFT;
+}
+
+.password-row .quiet-button {
+    -fx-min-width: 58px;
+}
+
+.password-feedback {
+    -fx-min-height: 48px;
+    -fx-padding: 12;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-font-size: 14px;
+    -fx-font-weight: 900;
+}
+
+.feedback-neutral {
+    -fx-background-color: #eef4f7;
+    -fx-border-color: #d4e1e8;
+    -fx-text-fill: #34505d;
+}
+
+.feedback-success {
+    -fx-background-color: #e7f7ee;
+    -fx-border-color: #91d3aa;
+    -fx-text-fill: #12633b;
+}
+
+.feedback-error {
+    -fx-background-color: #fff0ed;
+    -fx-border-color: #ef9a8e;
+    -fx-text-fill: #b42318;
+}
+
+.failed-password-list {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #d9e1e7;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+.failed-password-list .list-cell {
+    -fx-padding: 8 10;
+    -fx-background-color: transparent;
+    -fx-text-fill: #b42318;
+    -fx-font-family: "Cascadia Mono", "Consolas", monospace;
+    -fx-font-size: 12px;
+}
+
+.failed-password-list .list-cell:odd {
+    -fx-background-color: #fff7f5;
 }
 
 .empty-state {
