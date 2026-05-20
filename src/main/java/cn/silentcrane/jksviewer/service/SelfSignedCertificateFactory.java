@@ -52,9 +52,9 @@ public final class SelfSignedCertificateFactory {
         ensureProvider();
         X500Name subject = buildName(commonName, organization, organizationUnit, locality, state, country);
         Instant now = Instant.now();
-        Date notBefore = Date.from(now.minus(1, ChronoUnit.DAYS));
+        Date notBefore = Date.from(now);
         Date notAfter = Date.from(now.plus(Math.max(1, validityYears) * 365L, ChronoUnit.DAYS));
-        BigInteger serial = new BigInteger(160, RANDOM).abs();
+        BigInteger serial = BigInteger.ONE;
 
         X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
                 subject,
@@ -85,30 +85,27 @@ public final class SelfSignedCertificateFactory {
             String country
     ) {
         X500NameBuilder builder = new X500NameBuilder(BCStyle.INSTANCE);
-        builder.addRDN(BCStyle.CN, fallback(commonName, "Android App Signing"));
+        addOptional(builder, BCStyle.CN, commonName);
         addOptional(builder, BCStyle.O, organization);
         addOptional(builder, BCStyle.OU, organizationUnit);
         addOptional(builder, BCStyle.L, locality);
         addOptional(builder, BCStyle.ST, state);
-        addOptional(builder, BCStyle.C, normalizeCountry(country));
+        addOptional(builder, BCStyle.C, country);
         return builder.build();
     }
 
     private static void addOptional(X500NameBuilder builder, org.bouncycastle.asn1.ASN1ObjectIdentifier oid, String value) {
         if (value != null && !value.isBlank()) {
-            builder.addRDN(oid, value.trim());
+            builder.addRDN(oid, normalizeValue(oid, value));
         }
     }
 
-    private static String fallback(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value.trim();
-    }
-
-    private static String normalizeCountry(String country) {
-        if (country == null || country.isBlank()) {
-            return "CN";
+    private static String normalizeValue(org.bouncycastle.asn1.ASN1ObjectIdentifier oid, String value) {
+        String trimmed = value.trim();
+        if (BCStyle.C.equals(oid)) {
+            return trimmed.toUpperCase(java.util.Locale.ROOT);
         }
-        return country.trim().toUpperCase(java.util.Locale.ROOT);
+        return trimmed;
     }
 
     private static void ensureProvider() {

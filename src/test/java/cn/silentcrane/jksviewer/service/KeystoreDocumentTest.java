@@ -15,6 +15,7 @@ import java.security.KeyPair;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -116,6 +117,55 @@ final class KeystoreDocumentTest {
         KeystoreDocument reloaded = KeystoreDocument.load(path, new char[0]);
         assertEquals(1, reloaded.listAliases().size());
         assertTrue(reloaded.verifyAliasPassword("release", "aliaspass".toCharArray()));
+    }
+
+    @Test
+    void generatedAliasUsesAndroidStudioStyleCertificateIdentity() throws Exception {
+        Path path = tempDir.resolve("android-studio-style.jks");
+        KeystoreDocument document = KeystoreDocument.create(path, "storepass".toCharArray());
+
+        document.addGeneratedAlias(new GeneratedAliasRequest(
+                "myvideos",
+                "aliaspass".toCharArray(),
+                "yin2hao",
+                "",
+                "",
+                "",
+                "",
+                "",
+                2048,
+                50
+        ));
+
+        AliasInfo alias = document.listAliases().get(0);
+        assertEquals("myvideos", alias.getAlias());
+        assertEquals("CN=yin2hao", alias.getSubject());
+        assertEquals("CN=yin2hao", alias.getIssuer());
+        assertEquals("1", alias.getSerialNumber());
+        assertEquals(LocalDate.now(), alias.getNotBefore());
+    }
+
+    @Test
+    void generatedAliasDoesNotAddDefaultCertificateFields() throws Exception {
+        Path path = tempDir.resolve("minimal-dn.jks");
+        KeystoreDocument document = KeystoreDocument.create(path, "storepass".toCharArray());
+
+        document.addGeneratedAlias(new GeneratedAliasRequest(
+                "release",
+                "aliaspass".toCharArray(),
+                "",
+                "yin2hao",
+                "",
+                "",
+                "",
+                "",
+                2048,
+                50
+        ));
+
+        AliasInfo alias = document.listAliases().get(0);
+        assertEquals("O=yin2hao", alias.getSubject());
+        assertEquals("O=yin2hao", alias.getIssuer());
     }
 
     @Test
