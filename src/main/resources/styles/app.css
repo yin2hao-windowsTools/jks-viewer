@@ -51,6 +51,11 @@
     -fx-text-fill: #667783;
 }
 
+.form-key {
+    -fx-padding: 0 0 0 0;
+    -fx-alignment: CENTER_LEFT;
+}
+
 .metric-card {
     -fx-padding: 16;
     -fx-background-color: #f4f9fb;
@@ -275,10 +280,12 @@
 .app-dialog {
     -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
     -fx-background-color: #ffffff;
+    -fx-padding: 0 0 0 0;
 }
 
 .app-dialog .header-panel {
     -fx-background-color: #ffffff;
+    -fx-padding: 18 24 8 24;
 }
 
 .app-dialog .header-panel .label {
@@ -288,6 +295,20 @@
 
 .app-dialog .content.label {
     -fx-text-fill: #34505d;
+}
+
+.app-dialog > .content {
+    -fx-padding: 8 24 16 24;
+}
+
+.alias-form {
+    -fx-padding: 4 0 0 0;
+}
+
+.alias-form .combo-box,
+.alias-form .text-field,
+.alias-form .password-field {
+    -fx-pref-width: 348px;
 }
 
 .app-dialog .button {

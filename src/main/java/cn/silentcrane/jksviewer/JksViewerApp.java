@@ -421,6 +421,8 @@ public final class JksViewerApp extends Application {
         dialog.setTitle("新增 alias");
         dialog.setHeaderText("生成 Android 签名 alias");
         styleDialog(dialog.getDialogPane());
+        dialog.getDialogPane().setMinWidth(520);
+        dialog.getDialogPane().setPrefWidth(520);
 
         ButtonType addType = new ButtonType("生成", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(addType, ButtonType.CANCEL);
@@ -438,14 +440,21 @@ public final class JksViewerApp extends Application {
         TextField countryField = new TextField("CN");
         ComboBox<String> keySizeBox = new ComboBox<>(FXCollections.observableArrayList("2048", "3072", "4096"));
         keySizeBox.getSelectionModel().select("2048");
+        keySizeBox.setMaxWidth(Double.MAX_VALUE);
         ComboBox<String> validityBox = new ComboBox<>(FXCollections.observableArrayList("10", "25", "30", "50"));
         validityBox.getSelectionModel().select("25");
+        validityBox.setMaxWidth(Double.MAX_VALUE);
 
         GridPane form = new GridPane();
-        form.setPadding(new Insets(8, 0, 0, 0));
+        form.getStyleClass().add("alias-form");
+        form.setMinWidth(456);
+        form.setPrefWidth(456);
         form.setHgap(12);
         form.setVgap(10);
-        form.getColumnConstraints().addAll(new ColumnConstraints(110), new ColumnConstraints(280));
+        ColumnConstraints labelColumn = new ColumnConstraints(96);
+        ColumnConstraints inputColumn = new ColumnConstraints(348);
+        inputColumn.setHgrow(Priority.ALWAYS);
+        form.getColumnConstraints().addAll(labelColumn, inputColumn);
         addField(form, 0, "Alias", aliasField);
         addField(form, 1, "密码", passwordRow);
         addField(form, 2, "通用名 CN", commonNameField);
@@ -512,6 +521,9 @@ public final class JksViewerApp extends Application {
         grid.add(key, 0, row);
         grid.add(input, 1, row);
         GridPane.setHgrow(input, Priority.ALWAYS);
+        if (input instanceof javafx.scene.control.Control control) {
+            control.setMaxWidth(Double.MAX_VALUE);
+        }
     }
 
     private void deleteSelectedAlias() {
@@ -604,8 +616,11 @@ public final class JksViewerApp extends Application {
         visibleField.textProperty().bindBidirectional(passwordField.textProperty());
         visibleField.setVisible(false);
         visibleField.setManaged(false);
+        passwordField.setMaxWidth(Double.MAX_VALUE);
+        visibleField.setMaxWidth(Double.MAX_VALUE);
 
         StackPane fieldStack = new StackPane(passwordField, visibleField);
+        fieldStack.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(fieldStack, Priority.ALWAYS);
 
         Button toggleButton = new Button("显示");
@@ -629,6 +644,7 @@ public final class JksViewerApp extends Application {
 
         HBox row = new HBox(8, fieldStack, toggleButton);
         row.getStyleClass().add("password-row");
+        row.setMaxWidth(Double.MAX_VALUE);
         return row;
     }
 
