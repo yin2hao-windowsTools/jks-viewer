@@ -3,6 +3,36 @@
     -fx-background-color: #f4f7f9;
 }
 
+.app-shell {
+    -fx-background-color: #f4f7f9;
+}
+
+.drop-overlay {
+    -fx-background-color: rgba(21, 36, 45, 0.32);
+    -fx-padding: 28;
+}
+
+.drop-overlay-card {
+    -fx-padding: 24 34;
+    -fx-background-color: rgba(255, 255, 255, 0.96);
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: #0d6b78;
+    -fx-border-width: 2;
+}
+
+.drop-overlay-title {
+    -fx-font-size: 22px;
+    -fx-font-weight: 900;
+    -fx-text-fill: #15242d;
+}
+
+.drop-overlay-subtitle {
+    -fx-font-size: 13px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #526875;
+}
+
 .header {
     -fx-padding: 18 24;
     -fx-background-color: #ffffff;

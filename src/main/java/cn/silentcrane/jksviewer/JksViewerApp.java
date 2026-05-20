@@ -38,6 +38,8 @@ import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.input.Dragboard;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
@@ -78,6 +80,7 @@ public final class JksViewerApp extends Application {
     private Button verifyButton;
     private Label passwordFeedbackLabel;
     private ListView<String> failedPasswordList;
+    private StackPane dropOverlay;
     private boolean showingAliasPassword;
 
     public static void main(String[] args) {
@@ -95,7 +98,11 @@ public final class JksViewerApp extends Application {
         root.setRight(createInspector());
         root.setBottom(createStatusBar());
 
-        Scene scene = new Scene(root, 1180, 760);
+        StackPane shell = new StackPane(root, createDropOverlay());
+        shell.getStyleClass().add("app-shell");
+        configureFileDrop(shell);
+
+        Scene scene = new Scene(shell, 1180, 760);
         scene.getStylesheets().add(getClass().getResource("/styles/app.css").toExternalForm());
         primaryStage.setTitle("JKS Viewer");
         primaryStage.setMinWidth(1020);
@@ -103,7 +110,81 @@ public final class JksViewerApp extends Application {
         primaryStage.setScene(scene);
         primaryStage.show();
         updateDocumentSummary();
-        setStatus("请选择一个 Android JKS 文件开始。", false);
+        setStatus("请选择或拖入一个 Android JKS 文件开始。", false);
+    }
+
+    private StackPane createDropOverlay() {
+        Label title = new Label("松开打开密钥库文件");
+        title.getStyleClass().add("drop-overlay-title");
+        Label subtitle = new Label("将使用该文件的库密码继续打开");
+        subtitle.getStyleClass().add("drop-overlay-subtitle");
+
+        VBox card = new VBox(6, title, subtitle);
+        card.getStyleClass().add("drop-overlay-card");
+        card.setAlignment(Pos.CENTER);
+
+        dropOverlay = new StackPane(card);
+        dropOverlay.getStyleClass().add("drop-overlay");
+        dropOverlay.setVisible(false);
+        dropOverlay.setMouseTransparent(true);
+        return dropOverlay;
+    }
+
+    private void configureFileDrop(StackPane dropTarget) {
+        dropTarget.setOnDragOver(event -> {
+            if (isSupportedFileDrag(event.getDragboard())) {
+                event.acceptTransferModes(TransferMode.COPY);
+                setDropOverlayVisible(true);
+            }
+            event.consume();
+        });
+
+        dropTarget.setOnDragEntered(event -> {
+            if (isSupportedFileDrag(event.getDragboard())) {
+                setDropOverlayVisible(true);
+            }
+            event.consume();
+        });
+
+        dropTarget.setOnDragExited(event -> {
+            if (!dropTarget.getBoundsInLocal().contains(dropTarget.sceneToLocal(event.getSceneX(), event.getSceneY()))) {
+                setDropOverlayVisible(false);
+            }
+            event.consume();
+        });
+
+        dropTarget.setOnDragDropped(event -> {
+            File file = firstDraggedFile(event.getDragboard());
+            setDropOverlayVisible(false);
+            if (file == null) {
+                event.setDropCompleted(false);
+            } else {
+                openKeystoreFile(file);
+                event.setDropCompleted(true);
+            }
+            event.consume();
+        });
+    }
+
+    private boolean isSupportedFileDrag(Dragboard dragboard) {
+        return firstDraggedFile(dragboard) != null;
+    }
+
+    private File firstDraggedFile(Dragboard dragboard) {
+        if (dragboard == null || !dragboard.hasFiles()) {
+            return null;
+        }
+        return dragboard.getFiles().stream()
+                .filter(File::isFile)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void setDropOverlayVisible(boolean visible) {
+        if (dropOverlay == null || dropOverlay.isVisible() == visible) {
+            return;
+        }
+        dropOverlay.setVisible(visible);
     }
 
     private HBox createHeader() {
@@ -352,6 +433,10 @@ public final class JksViewerApp extends Application {
             return;
         }
 
+        openKeystoreFile(file);
+    }
+
+    private void openKeystoreFile(File file) {
         Optional<char[]> password = showPasswordDialog("输入库密码", "请输入 JKS 文件的库密码。", "库密码");
         password.ifPresent(chars -> {
             try {
