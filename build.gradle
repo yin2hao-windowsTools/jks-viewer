@@ -51,7 +51,13 @@ tasks.withType(Test).configureEach {
 
 tasks.register('packageWindows') {
     group = 'distribution'
-    description = 'Builds the portable Windows zip. Kept as a compatibility alias.'
+    description = 'Builds the portable Windows executable image. Kept as a compatibility alias.'
+    dependsOn tasks.named('packageWindowsPortableImage')
+}
+
+tasks.register('packageWindowsZip') {
+    group = 'distribution'
+    description = 'Builds the portable Windows zip.'
     dependsOn tasks.named('packageWindowsPortable')
 }
 
@@ -87,14 +93,32 @@ tasks.register('packageWindowsPortableImage', Exec) {
     ]))
 }
 
+tasks.register('packageWindowsPortableZipImage', Exec) {
+    group = 'distribution'
+    description = 'Builds an isolated portable Windows app image for zipping.'
+    dependsOn tasks.named('installDist')
+
+    def outputDir = layout.buildDirectory.dir('jpackage/portable-zip')
+    inputs.dir(jpackageLibDir)
+    outputs.dir(outputDir)
+
+    doFirst {
+        delete(outputDir)
+    }
+
+    commandLine(baseJpackageArgs.call('app-image', outputDir, [
+            '--java-options', '-Djksviewer.portable=true'
+    ]))
+}
+
 tasks.register('packageWindowsPortable', Zip) {
     group = 'distribution'
     description = 'Builds the non-invasive portable Windows zip.'
-    dependsOn tasks.named('packageWindowsPortableImage')
+    dependsOn tasks.named('packageWindowsPortableZipImage')
 
     archiveFileName.set("${appSlug}-${project.version}-windows-portable.zip")
     destinationDirectory.set(releaseDir)
-    from(layout.buildDirectory.dir("jpackage/portable/${appDisplayName}")) {
+    from(layout.buildDirectory.dir("jpackage/portable-zip/${appDisplayName}")) {
         into appDisplayName
     }
 }

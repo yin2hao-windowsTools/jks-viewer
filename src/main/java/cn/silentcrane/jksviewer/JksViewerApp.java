@@ -21,6 +21,7 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
+import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.SelectionMode;
@@ -101,9 +102,9 @@ public final class JksViewerApp extends Application {
         VBox copy = new VBox(2, title, subtitle);
         copy.setAlignment(Pos.CENTER_LEFT);
 
-        Button openButton = new Button("打开 JKS");
+        Button openButton = new Button("打开文件");
         openButton.getStyleClass().addAll("primary-button", "toolbar-button");
-        openButton.setTooltip(new Tooltip("打开现有 .jks 或 .keystore 文件"));
+        openButton.setTooltip(new Tooltip("打开现有 JKS / keystore 文件"));
         openButton.setOnAction(event -> openKeystore());
 
         Button newButton = new Button("新建");
@@ -111,7 +112,7 @@ public final class JksViewerApp extends Application {
         newButton.setTooltip(new Tooltip("创建一个新的空 JKS 文件"));
         newButton.setOnAction(event -> createKeystore());
 
-        saveButton = new Button("保存");
+        saveButton = new Button("保存文件");
         saveButton.getStyleClass().addAll("quiet-button", "toolbar-button");
         saveButton.setTooltip(new Tooltip("保存当前 JKS 文件"));
         saveButton.setDisable(true);
@@ -142,7 +143,7 @@ public final class JksViewerApp extends Application {
         metricCaption.getStyleClass().add("metric-caption");
         storeTypeLabel = new Label("格式: -");
         storeTypeLabel.getStyleClass().add("metric-caption");
-        VBox metric = new VBox(2, aliasCountLabel, metricCaption, storeTypeLabel);
+        VBox metric = new VBox(4, aliasCountLabel, metricCaption, storeTypeLabel);
         metric.getStyleClass().add("metric-card");
 
         addButton = new Button("新增 alias");
@@ -151,7 +152,7 @@ public final class JksViewerApp extends Application {
         addButton.setDisable(true);
         addButton.setOnAction(event -> showAddAliasDialog());
 
-        deleteButton = new Button("删除选中 alias");
+        deleteButton = new Button("删除 alias");
         deleteButton.getStyleClass().add("danger-button");
         deleteButton.setMaxWidth(Double.MAX_VALUE);
         deleteButton.setDisable(true);
@@ -206,7 +207,9 @@ public final class JksViewerApp extends Application {
         algorithmColumn.setPrefWidth(100);
 
         aliasTable.getColumns().setAll(List.of(aliasColumn, typeColumn, subjectColumn, validityColumn, algorithmColumn));
-        aliasTable.setPlaceholder(new Label("尚未加载 JKS 文件"));
+        Label placeholder = new Label("尚未打开密钥库文件");
+        placeholder.getStyleClass().add("empty-state");
+        aliasTable.setPlaceholder(placeholder);
 
         StackPane wrap = new StackPane(aliasTable);
         wrap.getStyleClass().add("table-wrap");
@@ -360,7 +363,7 @@ public final class JksViewerApp extends Application {
         Dialog<GeneratedAliasRequest> dialog = new Dialog<>();
         dialog.setTitle("新增 alias");
         dialog.setHeaderText("生成 Android 签名 alias");
-        dialog.getDialogPane().getStyleClass().add("alias-dialog");
+        styleDialog(dialog.getDialogPane());
 
         ButtonType addType = new ButtonType("生成", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(addType, ButtonType.CANCEL);
@@ -398,6 +401,7 @@ public final class JksViewerApp extends Application {
         dialog.getDialogPane().setContent(form);
 
         Button addButtonNode = (Button) dialog.getDialogPane().lookupButton(addType);
+        addButtonNode.getStyleClass().add("primary-button");
         addButtonNode.disableProperty().bind(Bindings.createBooleanBinding(
                 () -> aliasField.getText().isBlank() || passwordField.getText().length() < 6,
                 aliasField.textProperty(),
@@ -462,6 +466,9 @@ public final class JksViewerApp extends Application {
         confirm.setHeaderText("确认删除 " + selected.getAlias() + "？");
         confirm.setContentText("删除后会立即保存到当前 JKS 文件。");
         confirm.initOwner(stage);
+        styleDialog(confirm.getDialogPane());
+        Button okButton = (Button) confirm.getDialogPane().lookupButton(ButtonType.OK);
+        okButton.getStyleClass().add("danger-button");
         Optional<ButtonType> result = confirm.showAndWait();
         if (result.isEmpty() || result.get() != ButtonType.OK) {
             return;
@@ -509,6 +516,7 @@ public final class JksViewerApp extends Application {
         Dialog<char[]> dialog = new Dialog<>();
         dialog.setTitle(title);
         dialog.setHeaderText(header);
+        styleDialog(dialog.getDialogPane());
         ButtonType okType = new ButtonType("确定", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(okType, ButtonType.CANCEL);
 
@@ -519,6 +527,8 @@ public final class JksViewerApp extends Application {
         content.setPadding(new Insets(8, 0, 0, 0));
         dialog.getDialogPane().setContent(content);
 
+        Button okButton = (Button) dialog.getDialogPane().lookupButton(okType);
+        okButton.getStyleClass().add("primary-button");
         dialog.setResultConverter(button -> button == okType ? passwordField.getText().toCharArray() : null);
         return dialog.showAndWait();
     }
@@ -590,7 +600,13 @@ public final class JksViewerApp extends Application {
         alert.setHeaderText(title);
         alert.setContentText(message == null ? "未知错误" : message);
         alert.initOwner(stage);
+        styleDialog(alert.getDialogPane());
         alert.showAndWait();
+    }
+
+    private void styleDialog(DialogPane dialogPane) {
+        dialogPane.getStylesheets().add(getClass().getResource("/styles/app.css").toExternalForm());
+        dialogPane.getStyleClass().add("app-dialog");
     }
 
     private void clearCurrentDocument() {

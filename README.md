@@ -25,6 +25,16 @@ gradle test
 ## 打包 Windows 可运行版本
 
 ```powershell
+gradle packageWindows
+```
+
+默认生成 jpackage 可执行程序目录，入口为：
+
+`build/jpackage/portable/JKS Viewer/JKS Viewer.exe`
+
+完整发布包使用：
+
+```powershell
 gradle packageWindowsRelease
 ```
 
