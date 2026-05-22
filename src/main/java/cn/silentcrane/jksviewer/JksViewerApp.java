@@ -400,7 +400,6 @@ public final class JksViewerApp extends Application {
         failedPasswordList.setPlaceholder(new Label("暂无失败记录"));
         failedPasswordList.setPrefHeight(118);
         failedPasswordList.setFocusTraversable(false);
-        failedPasswordList.setMouseTransparent(true);
 
         VBox inspector = new VBox(
                 16,
