@@ -1,6 +1,6 @@
 package cn.silentcrane.jksviewer;
 
-import java.net.URI;
+import cn.silentcrane.jksviewer.service.RuntimePaths;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -35,13 +35,6 @@ public final class Launcher {
     }
 
     private static Path locateAppHome() throws Exception {
-        URI codeSource = Launcher.class.getProtectionDomain().getCodeSource().getLocation().toURI();
-        Path location = Path.of(codeSource).toAbsolutePath().normalize();
-        Path parent = Files.isRegularFile(location) ? location.getParent() : location;
-        if (parent != null && ("app".equalsIgnoreCase(parent.getFileName().toString())
-                || "lib".equalsIgnoreCase(parent.getFileName().toString()))) {
-            return parent.getParent();
-        }
-        return parent == null ? Path.of(".").toAbsolutePath().normalize() : parent;
+        return RuntimePaths.locateAppHome(Launcher.class);
     }
 }

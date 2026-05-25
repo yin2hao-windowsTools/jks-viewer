@@ -49,6 +49,13 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
+tasks.named('processResources') {
+    inputs.property('appVersion', project.version)
+    filesMatching('jksviewer.properties') {
+        expand(appVersion: project.version)
+    }
+}
+
 tasks.register('packageWindows') {
     group = 'distribution'
     description = 'Builds the portable Windows executable image. Kept as a compatibility alias.'
