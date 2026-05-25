@@ -1,5 +1,6 @@
 package cn.silentcrane.jksviewer;
 
+import cn.silentcrane.jksviewer.service.CrashReporter;
 import cn.silentcrane.jksviewer.service.RuntimePaths;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -10,6 +11,7 @@ public final class Launcher {
 
     public static void main(String[] args) {
         configurePortableRuntime();
+        CrashReporter.install(Launcher.class, AppMetadata.load());
         JksViewerApp.main(args);
     }
 

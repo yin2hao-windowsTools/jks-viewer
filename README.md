@@ -22,6 +22,13 @@ gradle run
 gradle test
 ```
 
+## Crash 日志
+
+程序发生未捕获异常时会写入 crash 日志，文件名格式为 `crash-时间-线程.log`。
+
+- portable 版本：`<程序目录>\.portable-data\crash`
+- 安装版或开发运行：`%LOCALAPPDATA%\JKS Viewer\crash`
+
 ## 打包 Windows 可运行版本
 
 ```powershell

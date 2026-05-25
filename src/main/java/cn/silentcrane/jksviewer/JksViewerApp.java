@@ -2,6 +2,7 @@ package cn.silentcrane.jksviewer;
 
 import cn.silentcrane.jksviewer.model.AliasInfo;
 import cn.silentcrane.jksviewer.model.GeneratedAliasRequest;
+import cn.silentcrane.jksviewer.service.CrashReporter;
 import cn.silentcrane.jksviewer.service.KeystoreDocument;
 import cn.silentcrane.jksviewer.service.update.ReleaseAsset;
 import cn.silentcrane.jksviewer.service.update.ReleaseInfo;
@@ -104,11 +105,13 @@ public final class JksViewerApp extends Application {
     private boolean newDocumentPendingSave;
 
     public static void main(String[] args) {
+        CrashReporter.install(JksViewerApp.class, AppMetadata.load());
         launch(args);
     }
 
     @Override
     public void start(Stage primaryStage) {
+        CrashReporter.attachCurrentThread();
         this.stage = primaryStage;
         BorderPane root = new BorderPane();
         root.getStyleClass().add("app-root");
@@ -1164,6 +1167,7 @@ public final class JksViewerApp extends Application {
     private void startDaemonTask(Task<?> task, String threadName) {
         Thread thread = new Thread(task, threadName);
         thread.setDaemon(true);
+        CrashReporter.attach(thread);
         thread.start();
     }
 
