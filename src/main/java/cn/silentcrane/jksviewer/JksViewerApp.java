@@ -3,7 +3,14 @@ package cn.silentcrane.jksviewer;
 import cn.silentcrane.jksviewer.model.AliasInfo;
 import cn.silentcrane.jksviewer.model.GeneratedAliasRequest;
 import cn.silentcrane.jksviewer.service.KeystoreDocument;
+import cn.silentcrane.jksviewer.service.update.ReleaseAsset;
+import cn.silentcrane.jksviewer.service.update.ReleaseInfo;
+import cn.silentcrane.jksviewer.service.update.UpdateCheckResult;
+import cn.silentcrane.jksviewer.service.update.UpdateInstallAction;
+import cn.silentcrane.jksviewer.service.update.UpdateService;
+import java.awt.Desktop;
 import java.io.File;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -14,9 +21,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -29,9 +38,12 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.Separator;
+import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
@@ -55,6 +67,8 @@ public final class JksViewerApp extends Application {
     private final ObservableList<AliasInfo> aliases = FXCollections.observableArrayList();
     private final ObservableList<String> failedPasswordItems = FXCollections.observableArrayList();
     private final Map<String, LinkedHashSet<String>> failedPasswordsByAlias = new HashMap<>();
+    private final AppMetadata appMetadata = AppMetadata.load();
+    private final UpdateService updateService = new UpdateService(appMetadata);
 
     private Stage stage;
     private KeystoreDocument document;
@@ -236,10 +250,40 @@ public final class JksViewerApp extends Application {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox header = new HBox(14, copy, spacer, openButton, newButton, discardButton, saveButton);
+        HBox header = new HBox(14, copy, spacer, openButton, newButton, discardButton, saveButton, createAboutMenu());
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         return header;
+    }
+
+    private MenuButton createAboutMenu() {
+        MenuItem aboutItem = new MenuItem("关于 " + appMetadata.name());
+        aboutItem.setOnAction(event -> showAboutDialog(false));
+
+        MenuItem checkUpdateItem = new MenuItem("检查更新");
+        checkUpdateItem.setOnAction(event -> showAboutDialog(true));
+
+        MenuItem developerHomeItem = new MenuItem("开发者主页");
+        developerHomeItem.setOnAction(event -> openExternalUri(appMetadata.developerHomepageUrl()));
+
+        MenuItem repositoryItem = new MenuItem("GitHub 仓库");
+        repositoryItem.setOnAction(event -> openExternalUri(appMetadata.repositoryUrl()));
+
+        MenuItem licenseItem = new MenuItem("许可证");
+        licenseItem.setOnAction(event -> showLicenseDialog());
+
+        MenuButton aboutMenu = new MenuButton("关于");
+        aboutMenu.getStyleClass().addAll("quiet-button", "toolbar-button");
+        aboutMenu.setTooltip(new Tooltip("查看应用信息、开发者主页、许可证和更新"));
+        aboutMenu.getItems().addAll(
+                aboutItem,
+                checkUpdateItem,
+                new SeparatorMenuItem(),
+                developerHomeItem,
+                repositoryItem,
+                licenseItem
+        );
+        return aboutMenu;
     }
 
     private VBox createSidebar() {
@@ -891,6 +935,234 @@ public final class JksViewerApp extends Application {
         alert.showAndWait();
     }
 
+    private void showAboutDialog(boolean checkImmediately) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("关于 " + appMetadata.name());
+        dialog.setHeaderText(appMetadata.name());
+        styleDialog(dialog.getDialogPane());
+        dialog.getDialogPane().setMinWidth(520);
+        dialog.getDialogPane().setPrefWidth(560);
+        dialog.getDialogPane().getButtonTypes().add(new ButtonType("关闭", ButtonBar.ButtonData.CANCEL_CLOSE));
+
+        Label title = new Label(appMetadata.name());
+        title.getStyleClass().add("about-title");
+        Label subtitle = new Label("Android 签名库可视化管理");
+        subtitle.getStyleClass().add("muted-label");
+
+        GridPane info = new GridPane();
+        info.getStyleClass().add("detail-grid");
+        info.setHgap(12);
+        info.setVgap(10);
+        info.getColumnConstraints().addAll(new ColumnConstraints(88), new ColumnConstraints(360));
+        addAboutRow(info, 0, "当前版本", appMetadata.version());
+        addAboutRow(info, 1, "开发者", appMetadata.vendor());
+        addAboutRow(info, 2, "许可证", displayLicense());
+        addAboutRow(info, 3, "运行模式", appMetadata.isPortableRuntime() ? "Portable，可自动覆盖更新" : "安装版，下载后启动安装包");
+
+        Button developerButton = new Button("开发者主页");
+        developerButton.getStyleClass().add("quiet-button");
+        developerButton.setOnAction(event -> openExternalUri(appMetadata.developerHomepageUrl()));
+
+        Button repositoryButton = new Button("GitHub 仓库");
+        repositoryButton.getStyleClass().add("quiet-button");
+        repositoryButton.setOnAction(event -> openExternalUri(appMetadata.repositoryUrl()));
+
+        Button checkButton = new Button("检查更新");
+        checkButton.getStyleClass().add("primary-button");
+
+        Button installButton = new Button(appMetadata.isPortableRuntime() ? "下载并自动覆盖" : "下载安装包");
+        installButton.getStyleClass().add("quiet-button");
+        installButton.setDisable(true);
+
+        Label updateStatus = new Label("点击“检查更新”从 GitHub Release 获取最新版本。");
+        updateStatus.getStyleClass().add("update-status");
+        updateStatus.setWrapText(true);
+
+        checkButton.setOnAction(event -> checkForUpdates(updateStatus, checkButton, installButton));
+
+        HBox linkActions = new HBox(8, developerButton, repositoryButton);
+        linkActions.getStyleClass().add("about-actions");
+        HBox updateActions = new HBox(8, checkButton, installButton);
+        updateActions.getStyleClass().add("about-actions");
+
+        VBox content = new VBox(14, title, subtitle, info, linkActions, new Separator(), updateStatus, updateActions);
+        content.getStyleClass().add("about-content");
+        dialog.getDialogPane().setContent(content);
+        dialog.setOnShown(event -> {
+            if (checkImmediately) {
+                checkForUpdates(updateStatus, checkButton, installButton);
+            }
+        });
+        dialog.showAndWait();
+    }
+
+    private void addAboutRow(GridPane grid, int row, String key, String value) {
+        Label keyLabel = new Label(key);
+        keyLabel.getStyleClass().add("detail-key");
+        Label valueLabel = new Label(value);
+        valueLabel.getStyleClass().add("detail-value");
+        valueLabel.setWrapText(true);
+        grid.add(keyLabel, 0, row);
+        grid.add(valueLabel, 1, row);
+    }
+
+    private void showLicenseDialog() {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("许可证");
+        alert.setHeaderText("许可证信息");
+        alert.setContentText("许可证: " + displayLicense() + System.lineSeparator()
+                + "最新授权条款请以 GitHub 仓库中的许可证文件为准。");
+        alert.initOwner(stage);
+        styleDialog(alert.getDialogPane());
+        alert.showAndWait();
+    }
+
+    private String displayLicense() {
+        return "Unspecified".equalsIgnoreCase(appMetadata.license())
+                ? "未声明"
+                : appMetadata.license();
+    }
+
+    private void checkForUpdates(Label updateStatus, Button checkButton, Button installButton) {
+        checkButton.setDisable(true);
+        installButton.setDisable(true);
+        updateStatus.setText("正在连接 GitHub Release...");
+        setStatus("正在检查更新。", false);
+
+        Task<UpdateCheckResult> task = new Task<>() {
+            @Override
+            protected UpdateCheckResult call() throws Exception {
+                return updateService.checkLatest();
+            }
+        };
+        task.setOnSucceeded(event -> renderUpdateResult(task.getValue(), updateStatus, checkButton, installButton));
+        task.setOnFailed(event -> {
+            checkButton.setDisable(false);
+            installButton.setDisable(true);
+            String message = userFacingMessage(task.getException());
+            updateStatus.setText("检查更新失败: " + message);
+            setStatus("检查更新失败。", true);
+        });
+        startDaemonTask(task, "jksviewer-update-check");
+    }
+
+    private void renderUpdateResult(
+            UpdateCheckResult result,
+            Label updateStatus,
+            Button checkButton,
+            Button installButton
+    ) {
+        checkButton.setDisable(false);
+        ReleaseInfo release = result.latestRelease();
+        if (!result.updateAvailable()) {
+            installButton.setDisable(true);
+            updateStatus.setText("已是最新版本: " + result.currentVersion() + "。");
+            setStatus("当前已是最新版本。", false);
+            return;
+        }
+
+        Optional<ReleaseAsset> asset = updateService.preferredAsset(release);
+        String releaseText = "发现新版本 " + release.version() + "（当前 " + result.currentVersion() + "）。";
+        if (asset.isEmpty()) {
+            installButton.setText("打开 Release");
+            installButton.setDisable(false);
+            installButton.setOnAction(event -> openExternalUri(release.htmlUri().toString()));
+            updateStatus.setText(releaseText + " 未找到可自动处理的 Windows 发布包，可打开 Release 页面手动下载。");
+            setStatus("发现新版本 " + release.version() + "。", false);
+            return;
+        }
+
+        ReleaseAsset updateAsset = asset.get();
+        installButton.setText(appMetadata.isPortableRuntime() ? "下载并自动覆盖" : "下载安装包");
+        installButton.setDisable(false);
+        installButton.setOnAction(event -> confirmAndInstallUpdate(release, updateAsset, updateStatus, installButton));
+        updateStatus.setText(releaseText + " 可用发布包: " + updateAsset.name() + "。");
+        setStatus("发现新版本 " + release.version() + "。", false);
+    }
+
+    private void confirmAndInstallUpdate(
+            ReleaseInfo release,
+            ReleaseAsset asset,
+            Label updateStatus,
+            Button installButton
+    ) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("更新 " + appMetadata.name());
+        confirm.setHeaderText(appMetadata.isPortableRuntime() ? "下载并自动覆盖旧版本？" : "下载并启动安装包？");
+        confirm.setContentText(appMetadata.isPortableRuntime()
+                ? "将下载 " + release.version() + " 的 portable 包。下载完成后程序会退出，等待当前进程结束后覆盖旧目录并自动重启。"
+                : "将下载 " + release.version() + " 的安装包并启动安装程序，请按安装器提示完成覆盖安装。");
+        confirm.initOwner(stage);
+        styleDialog(confirm.getDialogPane());
+
+        ButtonType updateType = new ButtonType("开始更新", ButtonBar.ButtonData.OK_DONE);
+        confirm.getButtonTypes().setAll(updateType, ButtonType.CANCEL);
+        Button updateButton = (Button) confirm.getDialogPane().lookupButton(updateType);
+        updateButton.getStyleClass().add("primary-button");
+
+        Optional<ButtonType> result = confirm.showAndWait();
+        if (result.isEmpty() || result.get() != updateType) {
+            return;
+        }
+        downloadAndInstallUpdate(asset, updateStatus, installButton);
+    }
+
+    private void downloadAndInstallUpdate(ReleaseAsset asset, Label updateStatus, Button installButton) {
+        installButton.setDisable(true);
+        updateStatus.setText("正在下载更新包: " + asset.name() + "...");
+        setStatus("正在下载更新包。", false);
+
+        Task<Path> task = new Task<>() {
+            @Override
+            protected Path call() throws Exception {
+                return updateService.downloadAsset(asset);
+            }
+        };
+        task.setOnSucceeded(event -> {
+            try {
+                UpdateInstallAction action = updateService.installDownloadedAsset(asset, task.getValue());
+                if (action == UpdateInstallAction.PORTABLE_UPDATE_STARTED) {
+                    updateStatus.setText("更新脚本已启动，程序即将关闭并自动覆盖旧版本。");
+                    setStatus("更新脚本已启动，正在退出程序。", false);
+                    Platform.exit();
+                } else if (action == UpdateInstallAction.INSTALLER_STARTED) {
+                    updateStatus.setText("安装程序已启动，请按提示完成覆盖安装。");
+                    setStatus("安装程序已启动。", false);
+                } else {
+                    updateStatus.setText("更新包已下载并打开，请手动完成更新。");
+                    setStatus("更新包已打开。", false);
+                }
+            } catch (Exception ex) {
+                installButton.setDisable(false);
+                updateStatus.setText("启动更新失败: " + userFacingMessage(ex));
+                setStatus("启动更新失败。", true);
+            }
+        });
+        task.setOnFailed(event -> {
+            installButton.setDisable(false);
+            updateStatus.setText("下载更新失败: " + userFacingMessage(task.getException()));
+            setStatus("下载更新失败。", true);
+        });
+        startDaemonTask(task, "jksviewer-update-download");
+    }
+
+    private void openExternalUri(String uri) {
+        try {
+            if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                throw new IllegalStateException("当前系统不支持打开浏览器。");
+            }
+            Desktop.getDesktop().browse(URI.create(uri));
+        } catch (Exception ex) {
+            showError("打开链接失败", userFacingMessage(ex));
+        }
+    }
+
+    private void startDaemonTask(Task<?> task, String threadName) {
+        Thread thread = new Thread(task, threadName);
+        thread.setDaemon(true);
+        thread.start();
+    }
+
     private void styleDialog(DialogPane dialogPane) {
         dialogPane.getStylesheets().add(getClass().getResource("/styles/app.css").toExternalForm());
         dialogPane.getStyleClass().add("app-dialog");
@@ -1007,7 +1279,7 @@ public final class JksViewerApp extends Application {
         passwordFeedbackLabel.getStyleClass().add("feedback-" + state);
     }
 
-    private String userFacingMessage(Exception ex) {
+    private String userFacingMessage(Throwable ex) {
         String message = ex.getMessage();
         if (message == null || message.isBlank()) {
             message = ex.getClass().getSimpleName();

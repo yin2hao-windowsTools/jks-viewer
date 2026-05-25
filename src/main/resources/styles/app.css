@@ -283,6 +283,31 @@
     -fx-text-fill: #b42318;
 }
 
+.about-content {
+    -fx-padding: 4 0 0 0;
+}
+
+.about-title {
+    -fx-font-size: 22px;
+    -fx-font-weight: 900;
+    -fx-text-fill: #15242d;
+}
+
+.about-actions {
+    -fx-alignment: CENTER_LEFT;
+}
+
+.update-status {
+    -fx-min-height: 54px;
+    -fx-padding: 12;
+    -fx-background-color: #eef4f7;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: #d4e1e8;
+    -fx-text-fill: #34505d;
+    -fx-font-weight: 700;
+}
+
 .failed-password-list {
     -fx-background-color: #ffffff;
     -fx-border-color: #d9e1e7;
