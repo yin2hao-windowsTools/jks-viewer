@@ -11,6 +11,7 @@ def bouncycastleVersion = '1.84'
 def appDisplayName = 'JKS Viewer'
 def appSlug = 'jks-viewer'
 def appVendor = 'Silent Crane'
+def appIcon = layout.projectDirectory.file('src/main/resources/icons/app.ico')
 def installerVersion = providers.gradleProperty('installerVersion').orElse(
         project.version.toString().replaceFirst(/-.*/, '')
 ).get()
@@ -75,6 +76,7 @@ def baseJpackageArgs = { String packageType, Provider<Directory> destinationDir,
             '--name', appDisplayName,
             '--app-version', installerVersion,
             '--vendor', appVendor,
+            '--icon', appIcon.asFile.absolutePath,
             '--dest', destinationDir.get().asFile.absolutePath,
             '--input', jpackageLibDir.get().asFile.absolutePath,
             '--main-jar', "${appSlug}-${project.version}.jar",
@@ -89,6 +91,7 @@ tasks.register('packageWindowsPortableImage', Exec) {
 
     def outputDir = layout.buildDirectory.dir('jpackage/portable')
     inputs.dir(jpackageLibDir)
+    inputs.file(appIcon)
     outputs.dir(outputDir)
 
     doFirst {
@@ -107,6 +110,7 @@ tasks.register('packageWindowsPortableZipImage', Exec) {
 
     def outputDir = layout.buildDirectory.dir('jpackage/portable-zip')
     inputs.dir(jpackageLibDir)
+    inputs.file(appIcon)
     outputs.dir(outputDir)
 
     doFirst {
@@ -144,6 +148,7 @@ tasks.register('packageWindowsExe', Exec) {
     def outputDir = layout.buildDirectory.dir('jpackage/exe')
     def finalFile = releaseDir.map { it.file("${appSlug}-${project.version}-windows-x64.exe") }
     inputs.dir(jpackageLibDir)
+    inputs.file(appIcon)
     outputs.file(finalFile)
 
     doFirst {
@@ -174,6 +179,7 @@ tasks.register('packageWindowsMsi', Exec) {
     def outputDir = layout.buildDirectory.dir('jpackage/msi')
     def finalFile = releaseDir.map { it.file("${appSlug}-${project.version}-windows-x64.msi") }
     inputs.dir(jpackageLibDir)
+    inputs.file(appIcon)
     outputs.file(finalFile)
 
     doFirst {

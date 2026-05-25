@@ -50,6 +50,7 @@ import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.image.Image;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
@@ -64,6 +65,8 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
 public final class JksViewerApp extends Application {
+    private static final String APP_ICON_RESOURCE = "/icons/app.png";
+
     private final ObservableList<AliasInfo> aliases = FXCollections.observableArrayList();
     private final ObservableList<String> failedPasswordItems = FXCollections.observableArrayList();
     private final Map<String, LinkedHashSet<String>> failedPasswordsByAlias = new HashMap<>();
@@ -122,6 +125,7 @@ public final class JksViewerApp extends Application {
         Scene scene = new Scene(shell, 1180, 760);
         scene.getStylesheets().add(getClass().getResource("/styles/app.css").toExternalForm());
         primaryStage.setTitle("JKS Viewer");
+        primaryStage.getIcons().add(new Image(getClass().getResource(APP_ICON_RESOURCE).toExternalForm()));
         primaryStage.setMinWidth(1020);
         primaryStage.setMinHeight(660);
         primaryStage.setScene(scene);
