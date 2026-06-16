@@ -6,6 +6,7 @@ import cn.silentcrane.jksviewer.service.CrashReporter;
 import cn.silentcrane.jksviewer.service.KeystoreDocument;
 import cn.silentcrane.jksviewer.service.backup.WebDavBackupRequest;
 import cn.silentcrane.jksviewer.service.backup.WebDavBackupService;
+import cn.silentcrane.jksviewer.service.library.KeystoreLibraryService;
 import cn.silentcrane.jksviewer.service.update.ReleaseAsset;
 import cn.silentcrane.jksviewer.service.update.ReleaseInfo;
 import cn.silentcrane.jksviewer.service.update.UpdateCheckResult;
@@ -40,6 +41,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
@@ -55,6 +57,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.image.Image;
 import javafx.scene.input.Dragboard;
+import javafx.scene.input.MouseButton;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.ColumnConstraints;
@@ -71,15 +74,21 @@ public final class JksViewerApp extends Application {
     private static final String APP_ICON_RESOURCE = "/icons/app.png";
 
     private final ObservableList<AliasInfo> aliases = FXCollections.observableArrayList();
+    private final ObservableList<Path> libraryFiles = FXCollections.observableArrayList();
     private final ObservableList<String> failedPasswordItems = FXCollections.observableArrayList();
     private final Map<String, LinkedHashSet<String>> failedPasswordsByAlias = new HashMap<>();
     private final AppMetadata appMetadata = AppMetadata.load();
     private final UpdateService updateService = new UpdateService(appMetadata);
     private final WebDavBackupService backupService = new WebDavBackupService();
+    private final KeystoreLibraryService libraryService = new KeystoreLibraryService();
 
     private Stage stage;
+    private Path libraryDirectory;
     private KeystoreDocument document;
     private TableView<AliasInfo> aliasTable;
+    private ListView<Path> libraryFileList;
+    private Label libraryPathLabel;
+    private Label libraryCountLabel;
     private Label fileNameLabel;
     private Label filePathLabel;
     private Label aliasCountLabel;
@@ -142,8 +151,9 @@ public final class JksViewerApp extends Application {
             }
         });
         primaryStage.show();
+        initializeLibrary();
         updateDocumentSummary();
-        setStatus("请选择或拖入一个 Android JKS 文件开始。", false);
+        setStatus("已准备本地密钥库，可将 JKS 文件复制到库文件夹后刷新。", false);
     }
 
     @Override
@@ -246,6 +256,11 @@ public final class JksViewerApp extends Application {
         newButton.setTooltip(new Tooltip("创建一个新的空 JKS 文件"));
         newButton.setOnAction(event -> createKeystore());
 
+        Button openLibraryButton = new Button("打开库文件夹");
+        openLibraryButton.getStyleClass().addAll("quiet-button", "toolbar-button");
+        openLibraryButton.setTooltip(new Tooltip("打开程序自动管理的本地密钥库文件夹"));
+        openLibraryButton.setOnAction(event -> openLibraryDirectory());
+
         saveButton = new Button("保存文件");
         saveButton.getStyleClass().addAll("quiet-button", "toolbar-button");
         saveButton.setTooltip(new Tooltip("保存当前 JKS 文件"));
@@ -266,7 +281,7 @@ public final class JksViewerApp extends Application {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox header = new HBox(14, copy, spacer, openButton, newButton, backupButton, discardButton, saveButton, createAboutMenu());
+        HBox header = new HBox(14, copy, spacer, openLibraryButton, openButton, newButton, backupButton, discardButton, saveButton, createAboutMenu());
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         return header;
@@ -303,6 +318,50 @@ public final class JksViewerApp extends Application {
     }
 
     private VBox createSidebar() {
+        Label libraryTitle = new Label("密钥库");
+        libraryTitle.getStyleClass().add("section-title");
+
+        libraryPathLabel = new Label("正在准备库文件夹...");
+        libraryPathLabel.getStyleClass().add("muted-label");
+        libraryPathLabel.setWrapText(true);
+
+        libraryCountLabel = new Label("0 个密钥库文件");
+        libraryCountLabel.getStyleClass().add("metric-caption");
+
+        libraryFileList = new ListView<>(libraryFiles);
+        libraryFileList.getStyleClass().add("library-file-list");
+        libraryFileList.setPlaceholder(new Label("库中暂无密钥库文件"));
+        libraryFileList.setPrefHeight(150);
+        libraryFileList.setCellFactory(list -> new ListCell<>() {
+            @Override
+            protected void updateItem(Path item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setTooltip(null);
+                    return;
+                }
+                setText(displayLibraryFileName(item));
+                setTooltip(new Tooltip(item.toAbsolutePath().toString()));
+            }
+        });
+        libraryFileList.setOnMouseClicked(event -> {
+            if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
+                openSelectedLibraryFile();
+            }
+        });
+
+        Button refreshLibraryButton = new Button("刷新库");
+        refreshLibraryButton.getStyleClass().add("quiet-button");
+        refreshLibraryButton.setMaxWidth(Double.MAX_VALUE);
+        refreshLibraryButton.setOnAction(event -> refreshLibraryFiles());
+
+        Button openSelectedLibraryButton = new Button("打开选中文件");
+        openSelectedLibraryButton.getStyleClass().add("primary-button");
+        openSelectedLibraryButton.setMaxWidth(Double.MAX_VALUE);
+        openSelectedLibraryButton.disableProperty().bind(libraryFileList.getSelectionModel().selectedItemProperty().isNull());
+        openSelectedLibraryButton.setOnAction(event -> openSelectedLibraryFile());
+
         Label sectionTitle = new Label("当前文件");
         sectionTitle.getStyleClass().add("section-title");
 
@@ -333,9 +392,25 @@ public final class JksViewerApp extends Application {
         deleteButton.setDisable(true);
         deleteButton.setOnAction(event -> deleteSelectedAlias());
 
-        VBox sidebar = new VBox(16, sectionTitle, fileNameLabel, filePathLabel, metric, new Separator(), addButton, deleteButton);
+        VBox sidebar = new VBox(
+                12,
+                libraryTitle,
+                libraryPathLabel,
+                libraryCountLabel,
+                libraryFileList,
+                refreshLibraryButton,
+                openSelectedLibraryButton,
+                new Separator(),
+                sectionTitle,
+                fileNameLabel,
+                filePathLabel,
+                metric,
+                new Separator(),
+                addButton,
+                deleteButton
+        );
         sidebar.getStyleClass().add("sidebar");
-        sidebar.setPrefWidth(260);
+        sidebar.setPrefWidth(300);
         return sidebar;
     }
 
@@ -501,6 +576,79 @@ public final class JksViewerApp extends Application {
         grid.add(value, 1, row);
     }
 
+    private void initializeLibrary() {
+        try {
+            libraryDirectory = libraryService.createDefaultLibrary(JksViewerApp.class);
+            updateLibraryPathLabel();
+            refreshLibraryFiles();
+        } catch (Exception ex) {
+            libraryPathLabel.setText("库初始化失败");
+            showError("库初始化失败", userFacingMessage(ex));
+            setStatus("库初始化失败。", true);
+        }
+    }
+
+    private void refreshLibraryFiles() {
+        if (libraryDirectory == null) {
+            return;
+        }
+        try {
+            libraryFiles.setAll(libraryService.scan(libraryDirectory));
+            updateLibraryPathLabel();
+            setStatus("已刷新本地密钥库，共 " + libraryFiles.size() + " 个文件。", false);
+        } catch (Exception ex) {
+            showError("刷新库失败", userFacingMessage(ex));
+            setStatus("刷新库失败。", true);
+        }
+    }
+
+    private void updateLibraryPathLabel() {
+        if (libraryDirectory == null) {
+            libraryPathLabel.setText("库文件夹未就绪");
+            libraryCountLabel.setText("0 个密钥库文件");
+            return;
+        }
+        libraryPathLabel.setText(libraryDirectory.toString());
+        libraryCountLabel.setText(libraryFiles.size() + " 个密钥库文件");
+    }
+
+    private void openSelectedLibraryFile() {
+        Path selected = libraryFileList.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            return;
+        }
+        openKeystoreFile(selected.toFile());
+    }
+
+    private String displayLibraryFileName(Path path) {
+        if (libraryDirectory == null) {
+            return path.getFileName().toString();
+        }
+        Path absoluteLibrary = libraryDirectory.toAbsolutePath().normalize();
+        Path absolutePath = path.toAbsolutePath().normalize();
+        if (absolutePath.startsWith(absoluteLibrary)) {
+            return absoluteLibrary.relativize(absolutePath).toString();
+        }
+        return path.getFileName().toString();
+    }
+
+    private void openLibraryDirectory() {
+        if (libraryDirectory == null) {
+            initializeLibrary();
+        }
+        if (libraryDirectory == null) {
+            return;
+        }
+        try {
+            if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                throw new IllegalStateException("当前系统不支持打开文件夹。");
+            }
+            Desktop.getDesktop().open(libraryDirectory.toFile());
+        } catch (Exception ex) {
+            showError("打开库文件夹失败", userFacingMessage(ex));
+        }
+    }
+
     private void openKeystore() {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("打开 Android JKS");
@@ -508,6 +656,9 @@ public final class JksViewerApp extends Application {
                 new FileChooser.ExtensionFilter("Android / Java KeyStore", "*.jks", "*.keystore", "*.p12", "*.pfx", "*.bks", "*.bcfks"),
                 new FileChooser.ExtensionFilter("所有文件", "*.*")
         );
+        if (libraryDirectory != null) {
+            chooser.setInitialDirectory(libraryDirectory.toFile());
+        }
         File file = chooser.showOpenDialog(stage);
         if (file == null) {
             return;
@@ -549,6 +700,9 @@ public final class JksViewerApp extends Application {
         chooser.setTitle("新建 JKS 文件");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JKS 文件", "*.jks"));
         chooser.setInitialFileName("android-signing.jks");
+        if (libraryDirectory != null) {
+            chooser.setInitialDirectory(libraryDirectory.toFile());
+        }
         File file = chooser.showSaveDialog(stage);
         if (file == null) {
             return;
@@ -596,6 +750,7 @@ public final class JksViewerApp extends Application {
             document.save();
             hasUnsavedChanges = false;
             newDocumentPendingSave = false;
+            refreshLibraryFiles();
             updateDocumentSummary();
             setStatus("已保存到 " + document.path().getFileName() + "。", false);
         } catch (Exception ex) {
@@ -816,6 +971,8 @@ public final class JksViewerApp extends Application {
     }
 
     private void showWebDavBackupDialog() {
+        refreshLibraryFiles();
+
         Dialog<WebDavBackupRequest> dialog = new Dialog<>();
         dialog.setTitle("WebDAV 备份");
         dialog.setHeaderText("备份密钥文件到 WebDAV");
@@ -826,14 +983,16 @@ public final class JksViewerApp extends Application {
         ButtonType backupType = new ButtonType("开始备份", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(backupType, ButtonType.CANCEL);
 
-        TextField sourceField = new TextField(defaultBackupSourcePath());
-        sourceField.setPromptText("选择 .jks / .keystore / .p12 文件");
-        Button chooseButton = new Button("选择");
-        chooseButton.getStyleClass().add("quiet-button");
-        chooseButton.setOnAction(event -> chooseBackupSourceFile(sourceField));
-        HBox sourceRow = new HBox(8, sourceField, chooseButton);
-        sourceRow.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(sourceField, Priority.ALWAYS);
+        ComboBox<Path> sourceBox = new ComboBox<>(libraryFiles);
+        sourceBox.setPromptText("选择库中的密钥文件");
+        sourceBox.setMaxWidth(Double.MAX_VALUE);
+        sourceBox.setCellFactory(list -> createLibraryFileCell());
+        sourceBox.setButtonCell(createLibraryFileCell());
+        if (document != null && libraryService.isLibraryFile(libraryDirectory, document.path())) {
+            sourceBox.getSelectionModel().select(document.path().toAbsolutePath().normalize());
+        } else if (!libraryFiles.isEmpty()) {
+            sourceBox.getSelectionModel().select(0);
+        }
 
         TextField urlField = new TextField();
         urlField.setPromptText("https://example.com/dav/");
@@ -854,15 +1013,15 @@ public final class JksViewerApp extends Application {
         ColumnConstraints inputColumn = new ColumnConstraints(476);
         inputColumn.setHgrow(Priority.ALWAYS);
         form.getColumnConstraints().addAll(labelColumn, inputColumn);
-        addField(form, 0, "密钥文件", sourceRow);
+        addField(form, 0, "库文件", sourceBox);
         addField(form, 1, "WebDAV 地址", urlField);
         addField(form, 2, "远程目录", directoryField);
         addField(form, 3, "用户名", usernameField);
         addField(form, 4, "密码", createRevealablePasswordInput(passwordField));
 
-        Label hint = new Label(hasUnsavedChanges
-                ? "当前文件有未保存修改，备份会上传磁盘上已保存的文件内容。"
-                : "远程目录不存在时会自动创建。");
+        Label hint = new Label(libraryFiles.isEmpty()
+                ? "库中暂无密钥文件，请先将 JKS 文件复制到库文件夹后刷新。"
+                : "WebDAV 备份只能选择本地密钥库中的文件。远程目录不存在时会自动创建。");
         hint.getStyleClass().add("muted-label");
         hint.setWrapText(true);
 
@@ -873,16 +1032,21 @@ public final class JksViewerApp extends Application {
         Button backupButtonNode = (Button) dialog.getDialogPane().lookupButton(backupType);
         backupButtonNode.getStyleClass().add("primary-button");
         backupButtonNode.disableProperty().bind(Bindings.createBooleanBinding(
-                () -> sourceField.getText().isBlank() || urlField.getText().isBlank(),
-                sourceField.textProperty(),
+                () -> sourceBox.getSelectionModel().getSelectedItem() == null || urlField.getText().isBlank(),
+                sourceBox.getSelectionModel().selectedItemProperty(),
                 urlField.textProperty()
         ));
         backupButtonNode.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
             try {
-                Path.of(sourceField.getText().trim());
                 URI.create(urlField.getText().trim());
             } catch (IllegalArgumentException ex) {
                 showError("备份参数错误", userFacingMessage(ex));
+                event.consume();
+                return;
+            }
+            Path selected = sourceBox.getSelectionModel().getSelectedItem();
+            if (!libraryService.isLibraryFile(libraryDirectory, selected)) {
+                showError("备份参数错误", "只能备份本地密钥库文件夹中的密钥文件。");
                 event.consume();
             }
         });
@@ -892,7 +1056,7 @@ public final class JksViewerApp extends Application {
                 return null;
             }
             return new WebDavBackupRequest(
-                    Path.of(sourceField.getText().trim()),
+                    sourceBox.getSelectionModel().getSelectedItem(),
                     URI.create(urlField.getText().trim()),
                     directoryField.getText().trim(),
                     usernameField.getText().trim(),
@@ -903,34 +1067,14 @@ public final class JksViewerApp extends Application {
         dialog.showAndWait().ifPresent(this::startWebDavBackup);
     }
 
-    private String defaultBackupSourcePath() {
-        if (document == null || newDocumentPendingSave) {
-            return "";
-        }
-        return document.path().toAbsolutePath().toString();
-    }
-
-    private void chooseBackupSourceFile(TextField sourceField) {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("选择要备份的密钥文件");
-        chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("Android / Java KeyStore", "*.jks", "*.keystore", "*.p12", "*.pfx", "*.bks", "*.bcfks"),
-                new FileChooser.ExtensionFilter("所有文件", "*.*")
-        );
-        if (!sourceField.getText().isBlank()) {
-            File current = new File(sourceField.getText().trim());
-            File parent = current.isDirectory() ? current : current.getParentFile();
-            if (parent != null && parent.isDirectory()) {
-                chooser.setInitialDirectory(parent);
+    private ListCell<Path> createLibraryFileCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(Path item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : displayLibraryFileName(item));
             }
-            if (current.isFile()) {
-                chooser.setInitialFileName(current.getName());
-            }
-        }
-        File file = chooser.showOpenDialog(stage);
-        if (file != null) {
-            sourceField.setText(file.toPath().toAbsolutePath().toString());
-        }
+        };
     }
 
     private void startWebDavBackup(WebDavBackupRequest request) {

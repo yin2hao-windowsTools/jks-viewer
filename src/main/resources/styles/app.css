@@ -315,6 +315,30 @@
     -fx-background-radius: 8;
 }
 
+.library-file-list {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #d9e1e7;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+.library-file-list .list-cell {
+    -fx-padding: 8 10;
+    -fx-background-color: transparent;
+    -fx-text-fill: #263943;
+    -fx-font-size: 12px;
+}
+
+.library-file-list .list-cell:odd {
+    -fx-background-color: #f9fbfc;
+}
+
+.library-file-list .list-cell:selected {
+    -fx-background-color: #d9eef3;
+    -fx-text-fill: #15242d;
+    -fx-font-weight: 800;
+}
+
 .failed-password-list .list-cell {
     -fx-padding: 8 10;
     -fx-background-color: transparent;
