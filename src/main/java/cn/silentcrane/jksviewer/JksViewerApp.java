@@ -289,27 +289,35 @@ public final class JksViewerApp extends Application {
 
     private MenuButton createAboutMenu() {
         MenuItem aboutItem = new MenuItem("关于 " + appMetadata.name());
+        aboutItem.getStyleClass().add("about-menu-item");
         aboutItem.setOnAction(event -> showAboutDialog(false));
 
         MenuItem checkUpdateItem = new MenuItem("检查更新");
+        checkUpdateItem.getStyleClass().add("about-menu-item");
         checkUpdateItem.setOnAction(event -> showAboutDialog(true));
 
         MenuItem developerHomeItem = new MenuItem("开发者主页");
+        developerHomeItem.getStyleClass().add("about-menu-item");
         developerHomeItem.setOnAction(event -> openExternalUri(appMetadata.developerHomepageUrl()));
 
         MenuItem repositoryItem = new MenuItem("GitHub 仓库");
+        repositoryItem.getStyleClass().add("about-menu-item");
         repositoryItem.setOnAction(event -> openExternalUri(appMetadata.repositoryUrl()));
 
         MenuItem licenseItem = new MenuItem("许可证");
+        licenseItem.getStyleClass().add("about-menu-item");
         licenseItem.setOnAction(event -> showLicenseDialog());
 
+        SeparatorMenuItem linkSeparator = new SeparatorMenuItem();
+        linkSeparator.getStyleClass().add("about-menu-separator");
+
         MenuButton aboutMenu = new MenuButton("关于");
-        aboutMenu.getStyleClass().addAll("quiet-button", "toolbar-button");
+        aboutMenu.getStyleClass().addAll("quiet-button", "toolbar-button", "about-menu-button");
         aboutMenu.setTooltip(new Tooltip("查看应用信息、开发者主页、许可证和更新"));
         aboutMenu.getItems().addAll(
                 aboutItem,
                 checkUpdateItem,
-                new SeparatorMenuItem(),
+                linkSeparator,
                 developerHomeItem,
                 repositoryItem,
                 licenseItem
