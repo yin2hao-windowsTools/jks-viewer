@@ -7,6 +7,9 @@ import cn.silentcrane.jksviewer.service.KeystoreDocument;
 import cn.silentcrane.jksviewer.service.backup.WebDavBackupRequest;
 import cn.silentcrane.jksviewer.service.backup.WebDavBackupService;
 import cn.silentcrane.jksviewer.service.library.KeystoreLibraryService;
+import cn.silentcrane.jksviewer.service.settings.AppSettings;
+import cn.silentcrane.jksviewer.service.settings.AppSettingsService;
+import cn.silentcrane.jksviewer.service.settings.WebDavSettings;
 import cn.silentcrane.jksviewer.service.update.ReleaseAsset;
 import cn.silentcrane.jksviewer.service.update.ReleaseInfo;
 import cn.silentcrane.jksviewer.service.update.UpdateCheckResult;
@@ -81,9 +84,12 @@ public final class JksViewerApp extends Application {
     private final UpdateService updateService = new UpdateService(appMetadata);
     private final WebDavBackupService backupService = new WebDavBackupService();
     private final KeystoreLibraryService libraryService = new KeystoreLibraryService();
+    private final AppSettingsService settingsService = new AppSettingsService();
 
     private Stage stage;
     private Path libraryDirectory;
+    private Path settingsFile;
+    private AppSettings settings = AppSettings.empty();
     private KeystoreDocument document;
     private TableView<AliasInfo> aliasTable;
     private ListView<Path> libraryFileList;
@@ -151,6 +157,7 @@ public final class JksViewerApp extends Application {
             }
         });
         primaryStage.show();
+        initializeSettings();
         initializeLibrary();
         updateDocumentSummary();
         setStatus("已准备本地密钥库，可将 JKS 文件复制到库文件夹后刷新。", false);
@@ -370,6 +377,21 @@ public final class JksViewerApp extends Application {
         openSelectedLibraryButton.disableProperty().bind(libraryFileList.getSelectionModel().selectedItemProperty().isNull());
         openSelectedLibraryButton.setOnAction(event -> openSelectedLibraryFile());
 
+        Label settingsTitle = new Label("设置");
+        settingsTitle.getStyleClass().add("section-title");
+
+        Button exportSettingsButton = new Button("快速导出设置");
+        exportSettingsButton.getStyleClass().add("quiet-button");
+        exportSettingsButton.setMaxWidth(Double.MAX_VALUE);
+        exportSettingsButton.setTooltip(new Tooltip("导出应用设置，包含 WebDAV 配置"));
+        exportSettingsButton.setOnAction(event -> exportSettings());
+
+        Button importSettingsButton = new Button("快速导入设置");
+        importSettingsButton.getStyleClass().add("quiet-button");
+        importSettingsButton.setMaxWidth(Double.MAX_VALUE);
+        importSettingsButton.setTooltip(new Tooltip("导入应用设置，包含 WebDAV 配置"));
+        importSettingsButton.setOnAction(event -> importSettings());
+
         Label sectionTitle = new Label("当前文件");
         sectionTitle.getStyleClass().add("section-title");
 
@@ -408,6 +430,10 @@ public final class JksViewerApp extends Application {
                 libraryFileList,
                 refreshLibraryButton,
                 openSelectedLibraryButton,
+                new Separator(),
+                settingsTitle,
+                exportSettingsButton,
+                importSettingsButton,
                 new Separator(),
                 sectionTitle,
                 fileNameLabel,
@@ -582,6 +608,85 @@ public final class JksViewerApp extends Application {
         key.getStyleClass().add("detail-key");
         grid.add(key, 0, row);
         grid.add(value, 1, row);
+    }
+
+    private void initializeSettings() {
+        try {
+            settingsFile = settingsService.defaultSettingsFile(JksViewerApp.class);
+            settings = settingsService.load(settingsFile);
+        } catch (Exception ex) {
+            settings = AppSettings.empty();
+            showError("设置加载失败", userFacingMessage(ex));
+            setStatus("设置加载失败，将使用默认设置。", true);
+        }
+    }
+
+    private void exportSettings() {
+        ensureSettingsLoaded();
+        FileChooser chooser = createSettingsFileChooser("导出 JKS Viewer 设置");
+        chooser.setInitialFileName("jks-viewer-settings.properties");
+        File file = chooser.showSaveDialog(stage);
+        if (file == null) {
+            return;
+        }
+        try {
+            settingsService.save(settingsFile, settings);
+            settingsService.exportSettings(settingsFile, file.toPath());
+            setStatus("已导出设置到 " + file.getName() + "。", false);
+            showInfo("设置已导出", "设置文件包含 WebDAV 配置，请妥善保管:" + System.lineSeparator() + file.getAbsolutePath());
+        } catch (Exception ex) {
+            showError("导出设置失败", userFacingMessage(ex));
+            setStatus("导出设置失败。", true);
+        }
+    }
+
+    private void importSettings() {
+        ensureSettingsLoaded();
+        FileChooser chooser = createSettingsFileChooser("导入 JKS Viewer 设置");
+        File file = chooser.showOpenDialog(stage);
+        if (file == null) {
+            return;
+        }
+        try {
+            settings = settingsService.importSettings(file.toPath(), settingsFile);
+            setStatus("已导入设置，WebDAV 配置会在下次备份时自动填充。", false);
+            showInfo("设置已导入", "已导入设置:" + System.lineSeparator() + file.getAbsolutePath());
+        } catch (Exception ex) {
+            showError("导入设置失败", userFacingMessage(ex));
+            setStatus("导入设置失败。", true);
+        }
+    }
+
+    private FileChooser createSettingsFileChooser(String title) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(title);
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("JKS Viewer 设置", "*.properties"),
+                new FileChooser.ExtensionFilter("所有文件", "*.*")
+        );
+        if (settingsFile != null && settingsFile.getParent() != null) {
+            File directory = settingsFile.getParent().toFile();
+            if (directory.isDirectory()) {
+                chooser.setInitialDirectory(directory);
+            }
+        }
+        return chooser;
+    }
+
+    private void ensureSettingsLoaded() {
+        if (settingsFile == null) {
+            initializeSettings();
+        }
+    }
+
+    private void saveSettings() {
+        ensureSettingsLoaded();
+        try {
+            settingsService.save(settingsFile, settings);
+        } catch (Exception ex) {
+            showError("保存设置失败", userFacingMessage(ex));
+            setStatus("保存设置失败。", true);
+        }
     }
 
     private void initializeLibrary() {
@@ -980,6 +1085,8 @@ public final class JksViewerApp extends Application {
 
     private void showWebDavBackupDialog() {
         refreshLibraryFiles();
+        ensureSettingsLoaded();
+        WebDavSettings webDavSettings = settings.webDav();
 
         Dialog<WebDavBackupRequest> dialog = new Dialog<>();
         dialog.setTitle("WebDAV 备份");
@@ -1002,13 +1109,16 @@ public final class JksViewerApp extends Application {
             sourceBox.getSelectionModel().select(0);
         }
 
-        TextField urlField = new TextField();
+        TextField urlField = new TextField(webDavSettings.serverUri());
         urlField.setPromptText("https://example.com/dav/");
-        TextField directoryField = new TextField("jks-backup");
+        TextField directoryField = new TextField(webDavSettings.remoteDirectory().isBlank()
+                ? "jks-backup"
+                : webDavSettings.remoteDirectory());
         directoryField.setPromptText("远程目录");
-        TextField usernameField = new TextField();
+        TextField usernameField = new TextField(webDavSettings.username());
         usernameField.setPromptText("用户名");
         PasswordField passwordField = new PasswordField();
+        passwordField.setText(new String(webDavSettings.password()));
         passwordField.setPromptText("密码或应用专用密码");
 
         GridPane form = new GridPane();
@@ -1063,6 +1173,13 @@ public final class JksViewerApp extends Application {
             if (button != backupType) {
                 return null;
             }
+            settings = new AppSettings(new WebDavSettings(
+                    urlField.getText(),
+                    directoryField.getText(),
+                    usernameField.getText(),
+                    passwordField.getText().toCharArray()
+            ));
+            saveSettings();
             return new WebDavBackupRequest(
                     sourceBox.getSelectionModel().getSelectedItem(),
                     URI.create(urlField.getText().trim()),
