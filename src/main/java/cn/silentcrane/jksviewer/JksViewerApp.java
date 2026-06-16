@@ -4,6 +4,8 @@ import cn.silentcrane.jksviewer.model.AliasInfo;
 import cn.silentcrane.jksviewer.model.GeneratedAliasRequest;
 import cn.silentcrane.jksviewer.service.CrashReporter;
 import cn.silentcrane.jksviewer.service.KeystoreDocument;
+import cn.silentcrane.jksviewer.service.backup.WebDavBackupRequest;
+import cn.silentcrane.jksviewer.service.backup.WebDavBackupService;
 import cn.silentcrane.jksviewer.service.update.ReleaseAsset;
 import cn.silentcrane.jksviewer.service.update.ReleaseInfo;
 import cn.silentcrane.jksviewer.service.update.UpdateCheckResult;
@@ -73,6 +75,7 @@ public final class JksViewerApp extends Application {
     private final Map<String, LinkedHashSet<String>> failedPasswordsByAlias = new HashMap<>();
     private final AppMetadata appMetadata = AppMetadata.load();
     private final UpdateService updateService = new UpdateService(appMetadata);
+    private final WebDavBackupService backupService = new WebDavBackupService();
 
     private Stage stage;
     private KeystoreDocument document;
@@ -96,6 +99,7 @@ public final class JksViewerApp extends Application {
     private Button deleteButton;
     private Button saveButton;
     private Button discardButton;
+    private Button backupButton;
     private Button verifyButton;
     private Label passwordFeedbackLabel;
     private ListView<String> failedPasswordList;
@@ -254,10 +258,15 @@ public final class JksViewerApp extends Application {
         discardButton.setDisable(true);
         discardButton.setOnAction(event -> discardUnsavedChanges());
 
+        backupButton = new Button("WebDAV 备份");
+        backupButton.getStyleClass().addAll("quiet-button", "toolbar-button");
+        backupButton.setTooltip(new Tooltip("备份指定的密钥文件到 WebDAV"));
+        backupButton.setOnAction(event -> showWebDavBackupDialog());
+
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox header = new HBox(14, copy, spacer, openButton, newButton, discardButton, saveButton, createAboutMenu());
+        HBox header = new HBox(14, copy, spacer, openButton, newButton, backupButton, discardButton, saveButton, createAboutMenu());
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         return header;
@@ -806,6 +815,150 @@ public final class JksViewerApp extends Application {
         return dialog.showAndWait();
     }
 
+    private void showWebDavBackupDialog() {
+        Dialog<WebDavBackupRequest> dialog = new Dialog<>();
+        dialog.setTitle("WebDAV 备份");
+        dialog.setHeaderText("备份密钥文件到 WebDAV");
+        styleDialog(dialog.getDialogPane());
+        dialog.getDialogPane().setMinWidth(640);
+        dialog.getDialogPane().setPrefWidth(680);
+
+        ButtonType backupType = new ButtonType("开始备份", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(backupType, ButtonType.CANCEL);
+
+        TextField sourceField = new TextField(defaultBackupSourcePath());
+        sourceField.setPromptText("选择 .jks / .keystore / .p12 文件");
+        Button chooseButton = new Button("选择");
+        chooseButton.getStyleClass().add("quiet-button");
+        chooseButton.setOnAction(event -> chooseBackupSourceFile(sourceField));
+        HBox sourceRow = new HBox(8, sourceField, chooseButton);
+        sourceRow.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(sourceField, Priority.ALWAYS);
+
+        TextField urlField = new TextField();
+        urlField.setPromptText("https://example.com/dav/");
+        TextField directoryField = new TextField("jks-backup");
+        directoryField.setPromptText("远程目录");
+        TextField usernameField = new TextField();
+        usernameField.setPromptText("用户名");
+        PasswordField passwordField = new PasswordField();
+        passwordField.setPromptText("密码或应用专用密码");
+
+        GridPane form = new GridPane();
+        form.getStyleClass().add("alias-form");
+        form.setMinWidth(584);
+        form.setPrefWidth(584);
+        form.setHgap(12);
+        form.setVgap(10);
+        ColumnConstraints labelColumn = new ColumnConstraints(96);
+        ColumnConstraints inputColumn = new ColumnConstraints(476);
+        inputColumn.setHgrow(Priority.ALWAYS);
+        form.getColumnConstraints().addAll(labelColumn, inputColumn);
+        addField(form, 0, "密钥文件", sourceRow);
+        addField(form, 1, "WebDAV 地址", urlField);
+        addField(form, 2, "远程目录", directoryField);
+        addField(form, 3, "用户名", usernameField);
+        addField(form, 4, "密码", createRevealablePasswordInput(passwordField));
+
+        Label hint = new Label(hasUnsavedChanges
+                ? "当前文件有未保存修改，备份会上传磁盘上已保存的文件内容。"
+                : "远程目录不存在时会自动创建。");
+        hint.getStyleClass().add("muted-label");
+        hint.setWrapText(true);
+
+        VBox content = new VBox(12, form, hint);
+        content.setPadding(new Insets(4, 0, 0, 0));
+        dialog.getDialogPane().setContent(content);
+
+        Button backupButtonNode = (Button) dialog.getDialogPane().lookupButton(backupType);
+        backupButtonNode.getStyleClass().add("primary-button");
+        backupButtonNode.disableProperty().bind(Bindings.createBooleanBinding(
+                () -> sourceField.getText().isBlank() || urlField.getText().isBlank(),
+                sourceField.textProperty(),
+                urlField.textProperty()
+        ));
+        backupButtonNode.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            try {
+                Path.of(sourceField.getText().trim());
+                URI.create(urlField.getText().trim());
+            } catch (IllegalArgumentException ex) {
+                showError("备份参数错误", userFacingMessage(ex));
+                event.consume();
+            }
+        });
+
+        dialog.setResultConverter(button -> {
+            if (button != backupType) {
+                return null;
+            }
+            return new WebDavBackupRequest(
+                    Path.of(sourceField.getText().trim()),
+                    URI.create(urlField.getText().trim()),
+                    directoryField.getText().trim(),
+                    usernameField.getText().trim(),
+                    passwordField.getText().toCharArray()
+            );
+        });
+
+        dialog.showAndWait().ifPresent(this::startWebDavBackup);
+    }
+
+    private String defaultBackupSourcePath() {
+        if (document == null || newDocumentPendingSave) {
+            return "";
+        }
+        return document.path().toAbsolutePath().toString();
+    }
+
+    private void chooseBackupSourceFile(TextField sourceField) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("选择要备份的密钥文件");
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("Android / Java KeyStore", "*.jks", "*.keystore", "*.p12", "*.pfx", "*.bks", "*.bcfks"),
+                new FileChooser.ExtensionFilter("所有文件", "*.*")
+        );
+        if (!sourceField.getText().isBlank()) {
+            File current = new File(sourceField.getText().trim());
+            File parent = current.isDirectory() ? current : current.getParentFile();
+            if (parent != null && parent.isDirectory()) {
+                chooser.setInitialDirectory(parent);
+            }
+            if (current.isFile()) {
+                chooser.setInitialFileName(current.getName());
+            }
+        }
+        File file = chooser.showOpenDialog(stage);
+        if (file != null) {
+            sourceField.setText(file.toPath().toAbsolutePath().toString());
+        }
+    }
+
+    private void startWebDavBackup(WebDavBackupRequest request) {
+        setStatus("正在备份 " + request.sourceFile().getFileName() + " 到 WebDAV。", false);
+        backupButton.setDisable(true);
+
+        Task<URI> task = new Task<>() {
+            @Override
+            protected URI call() throws Exception {
+                return backupService.backup(request);
+            }
+        };
+        task.setOnSucceeded(event -> {
+            request.clearPassword();
+            backupButton.setDisable(false);
+            URI targetUri = task.getValue();
+            setStatus("WebDAV 备份完成: " + targetUri, false);
+            showInfo("备份完成", "已备份到:" + System.lineSeparator() + targetUri);
+        });
+        task.setOnFailed(event -> {
+            request.clearPassword();
+            backupButton.setDisable(false);
+            showError("备份失败", userFacingMessage(task.getException()));
+            setStatus("WebDAV 备份失败。", true);
+        });
+        startDaemonTask(task, "jksviewer-webdav-backup");
+    }
+
     private HBox createRevealablePasswordInput(PasswordField passwordField) {
         TextField visibleField = new TextField();
         visibleField.promptTextProperty().bind(passwordField.promptTextProperty());
@@ -937,6 +1090,16 @@ public final class JksViewerApp extends Application {
         alert.setTitle(title);
         alert.setHeaderText(title);
         alert.setContentText(message == null ? "未知错误" : message);
+        alert.initOwner(stage);
+        styleDialog(alert.getDialogPane());
+        alert.showAndWait();
+    }
+
+    private void showInfo(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(title);
+        alert.setContentText(message == null ? "" : message);
         alert.initOwner(stage);
         styleDialog(alert.getDialogPane());
         alert.showAndWait();
